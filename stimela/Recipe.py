@@ -1,16 +1,95 @@
 import os
+import re
 import sys
+import time
 import inspect
 import logging
-import re
-import time
-from stimela.RecipeStep import Step
-import logging
-from stimela.RecipeCWL import Workflow
-import subprocess
 import warnings
+import tempfile
+import subprocess
+
+from stimela.RecipeStep import Step
+from stimela.RecipeCWL import Workflow
+
+import ruamel.yaml as yaml
+from ruamel.yaml.comments import CommentedMap as ordereddict
 
 CWLDIR = os.path.join(os.path.dirname(__file__), "cargo/cab")
+TMPLT = {'ref_ant': ordereddict([('doc', 'Reference antenna - its phase is guaranteed to be zero.'),
+                                 ('inputBinding', ordereddict([('prefix', 'ref-ant')])),
+                                 ('type', 'string?')]),
+         'time_int': ordereddict([('doc', 'Time solution interval for this term. 0 means use entire chunk.'),
+                                  ('inputBinding', ordereddict([('prefix', 'time-int')])),
+                                  ('type', 'float?')]),
+         'freq_int': ordereddict([('doc', 'Frequency solution interval for this term. 0 means use entire chunk.'),
+                                  ('inputBinding', ordereddict([('prefix', 'freq-int')])), ('type', 'float?')]),
+         'update_type': ordereddict([('doc', "Determines update type. This does not change the Jones solver type, but"\
+                                      "restricts the update rule to pin the solutions within a certain subspace:"\
+                                      "'full' is the default behaviour;'diag' pins the off-diagonal terms to 0;"\
+                                      "'phase-diag' also pins the amplitudes of the diagonal terms to unity;"\
+                                      "'amp-diag' also pins the phases to 0."),
+                                     ('inputBinding', ordereddict([('prefix', 'update-type')])),
+                                     ('type', 'string?')]),
+         'fix_dirs': ordereddict([('doc', 'For DD terms, makes the listed directions non-solvable.'),
+                                  ('inputBinding', ordereddict([('prefix', 'fix-dirs')])),
+                                  ('type', 'int?')]),
+         'max_iter': ordereddict([('doc', 'Maximum number of iterations spent on this term.'),
+                                  ('inputBinding', ordereddict([('prefix', 'max-iter')])),
+                                  ('type', 'int?')]),
+         'clip_high': ordereddict([('doc', 'Amplitude clipping - flag solutions with any amplitudes above this value.'),
+                                   ('inputBinding', ordereddict([('prefix', 'clip-high')])),
+                                   ('type', 'float?')]),
+         'xfer_from': ordereddict([('doc', 'Transfer solutions from given database. Similar to -load-from, but'\
+                                    'solutions will be interpolated onto the required time/frequency grid,'\
+                                    'so they can originate from a different field (e.g. from a calibrator).'),
+                                   ('inputBinding', ordereddict([('prefix', 'xfer-from')])),
+                                   ('type', 'File?')]),
+         'dd_term': ordereddict([('doc', 'Determines whether this term is direction dependent. --model-ddes must'),
+                                 ('inputBinding', ordereddict([('prefix', 'dd-term'),
+                                 ('valueFrom', '${\n  var value = 0;\n  var par_value = inputs.g1_dd_term;\n'
+                                  '  if (par_value) {\n    value=1;\n  }\n  return value;\n}\n')])),
+                                 ('type', 'boolean?')]),
+         'load_from': ordereddict([('doc', 'Load solutions from given database. The DB must define solutions '\
+                                    'on the same time/frequency grid (i.e. should normally come from '\
+                                    'calibrating the same pointing/observation). By default, the Jones '\
+                                    'matrix label is used to form up parameter names, but his may be '\
+                                    'overridden by adding an explicit "//LABEL" to the database filename.'),
+                                   ('inputBinding', ordereddict([('prefix', 'load-from')])),
+                                   ('type', 'File?')]),
+         'prop_flags': ordereddict([('doc', "Flag propagation policy. Determines how flags raised on gains propagate back "\
+                                     "into the data. Options are 'never' to never propagate, 'always' to always propagate, "\
+                                     "'default' to only propagate flags from direction-independent gains."),
+                                    ('inputBinding', ordereddict([('prefix', 'prop-flags')])), ('type', 'string?')]),
+         'clip_after': ordereddict([('doc', 'Number of iterations after which to clip this gain.'),
+                                    ('inputBinding', ordereddict([('prefix', 'clip-after')])),
+                                    ('type', 'int?')]),
+         'conv_quorum': ordereddict([('doc', 'Minimum percentage of converged solutions to accept.'),
+                                     ('inputBinding', ordereddict([('prefix', 'conv-quorum')])),
+                                     ('type', 'float?')]),
+         'solvable': ordereddict([('doc', 'Set to 0 (and specify -load-from or -xfer-from) to load a non-solvable '\
+                                   'term is loaded from disk. Not to be confused with --sol-jones, which determines '\
+                                   'the active Jones terms.'),
+                                  ('inputBinding', ordereddict([('prefix', 'solvable'),
+                                  ('valueFrom', '${\n  var value = 0;\n  var par_value = inputs.g1_solvable;\n  '\
+                                   'if (par_value) {\n    value=1;\n  }\n  return value;\n}\n')])),
+                                  ('type', 'boolean?')]),
+         'max_prior_error': ordereddict([('doc', 'Flag solution intervals where the prior error estimate is above this value.'),
+                                         ('inputBinding', ordereddict([('prefix', 'max-prior-error')])),
+                                         ('type', 'float?')]),
+         'type': ordereddict([('doc', 'Type of Jones matrix to solve for. Note that if multiple Jones terms are '\
+                               'enabled, then only complex-2x2 is supported.'),
+                              ('inputBinding', ordereddict([('prefix', 'type')])),
+                              ('type', 'string?')]),
+         'max_post_error': ordereddict([('doc', 'Flag solution intervals where the posterior variance estimate is above this value.'),
+                                        ('inputBinding', ordereddict([('prefix', 'max-post-error')])),
+                                        ('type', 'float?')]),
+         'save_to': ordereddict([('doc', 'Save solutions to given database'),
+                                        ('inputBinding', ordereddict([('prefix', 'save-to')])),
+                                        ('type', 'string?')]),
+         'clip_low': ordereddict([('doc', 'Amplitude clipping - flag solutions with diagonal amplitudes below this value.'),
+                                  ('inputBinding', ordereddict([('prefix', 'clip-low')])),
+                                  ('type', 'float?')])}
+
 
 class Recipe(object):
     """
@@ -114,7 +193,34 @@ class Recipe(object):
         else:
             if parameters is None:
                 self.log.abort("No parameters were parsed into the %s. Please review your recipe." % label)
-            cwlfile = cwlfile or "{0:s}/{1:s}.cwl".format(CWLDIR, task)
+
+            if task in ['cubical']:
+                # Create temporary file
+                tfile = tempfile.NamedTemporaryFile(suffix=".cwl", delete=False)
+                tfile.flush()
+                # Read the cubical cwl file
+                with open(cwlfile or "{0:s}/{1:s}.cwl".format(CWLDIR, task), "r") as stdr:
+                    cab = yaml.load(stdr, Loader=yaml.RoundTripLoader)
+                # Assigning temporary cwl file
+                cwlfile = tfile.name
+                # Get the jones term to solve
+                jones = parameters['sol_jones'].lower().split(',')
+                # Adding the template params into the temporary cwl file with the appropriate jones terms
+                for param in TMPLT:
+                    for term in jones:
+                        # Name of the paramaeter to be added
+                        par = "%s_%s" % (term, param)
+                        # Updating the prefix
+                        prefix = TMPLT[param]["inputBinding"]["prefix"]
+                        TMPLT[param]["inputBinding"]["prefix"] = "--{}-{}".format(term, prefix)
+                        # Update the parameter list
+                        cab["inputs"].insert(0, par, ordereddict(TMPLT[param]))
+                        cab["inputs"][par]['inputBinding'] = ordereddict(TMPLT[param]['inputBinding'])
+                with open(cwlfile, "w") as stdw:
+                    yaml.dump(cab, stdw, Dumper=yaml.RoundTripDumper,
+                                     default_flow_style=False)
+            else:
+                cwlfile = cwlfile or "{0:s}/{1:s}.cwl".format(CWLDIR, task)
             self.log.info("Adding step [{:s}] to recipe".format(task))
 
         step = Step(label, parameters, cwlfile, indir=self.indir, scatter=scatter)
