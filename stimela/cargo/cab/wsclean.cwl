@@ -611,27 +611,178 @@ outputs:
     doc: Output list of model components from wsclean
     outputBinding:
       glob: $(inputs.name)*.txt
-  images_out:
+  restored_images_out:
     type: File[]
-    doc: Output images
+    doc: Output restored images (i.e. <>-*-image.fits)
     outputBinding:
-      glob: $(inputs.name)*.fits
-  image_out:
+      glob: $(inputs.name)*-image.fits
+      outputEval: ${if (inputs.channels_out) {
+                var images = [];
+                if (inputs.channels_out > 1) {
+                  var files = self;
+                  for (var i in files) {
+                    if (!files[i].basename.includes("-MFS-")) {
+                      images.push(files[i]);
+                    }
+                  }
+                  return images;
+                }
+              } else {
+                return self;
+              }
+             }
+  restored_image_out:
     type: File
-    doc: Output image (i.e. <>-image.fits or <>-MFS-image.fits)
+    doc: Output restored image (i.e. <>-image.fits)
     outputBinding:
       glob: ${if (inputs.channels_out) {
                 if (inputs.channels_out > 1) {
-                  return (inputs.name).concat("*-MFS-image.fits");
+                  return (inputs.name).concat("-MFS-image.fits");
                 } else {
-                  return (inputs.name).concat("*-image.fits");
+                  return (inputs.name).concat("-image.fits");
                 }
               } else {
-                return (inputs.name).concat("*-image.fits");
+                return (inputs.name).concat("-image.fits");
+              }
+             }
+  residual_images_out:
+    type: File[]
+    doc: Output residual images (i.e. <>-*-residual.fits)
+    outputBinding:
+      glob: $(inputs.name)*-residual.fits
+      outputEval: ${if (inputs.channels_out) {
+                var images = [];
+                if (inputs.channels_out > 1) {
+                  var files = self;
+                  for (var i in files) {
+                    if (!files[i].basename.includes("-MFS-")) {
+                      images.push(files[i]);
+                    }
+                  }
+                  return images;
+                }
+              } else {
+                return self;
+              }
+             }
+  residual_image_out:
+    type: File
+    doc: Output residual image (i.e. <>-residual.fits)
+    outputBinding:
+      glob: ${if (inputs.channels_out) {
+                if (inputs.channels_out > 1) {
+                  return (inputs.name).concat("-MFS-residual.fits");
+                } else {
+                  return (inputs.name).concat("-residual.fits");
+                }
+              } else {
+                return (inputs.name).concat("-residual.fits");
+              }
+             }
+  psf_images_out:
+    type: File[]
+    doc: Output psf images (i.e. <>-*-psf.fits)
+    outputBinding:
+      glob: $(inputs.name)*-psf.fits
+      outputEval: ${if (inputs.channels_out) {
+                var images = [];
+                if (inputs.channels_out > 1) {
+                  var files = self;
+                  for (var i in files) {
+                    if (!files[i].basename.includes("-MFS-")) {
+                      images.push(files[i]);
+                    }
+                  }
+                  return images;
+                }
+              } else {
+                return self;
+              }
+             }
+  psf_image_out:
+    type: File
+    doc: Output psf image(i.e. <>-psf.fits)
+    outputBinding:
+      glob: ${if (inputs.channels_out) {
+                if (inputs.channels_out > 1) {
+                  return (inputs.name).concat("-MFS-psf.fits");
+                } else {
+                  return (inputs.name).concat("-psf.fits");
+                }
+              } else {
+                return (inputs.name).concat("-psf.fits");
+              }
+             }
+  model_images_out:
+    type: File[]
+    doc: Output model images(i.e. <>-*-model.fits)
+    outputBinding:
+      glob: $(inputs.name)*-psf.fits
+      outputEval: ${if (inputs.channels_out) {
+                var images = [];
+                if (inputs.channels_out > 1) {
+                  var files = self;
+                  for (var i in files) {
+                    if (!files[i].basename.includes("-MFS-")) {
+                      images.push(files[i]);
+                    }
+                  }
+                  return images;
+                }
+              } else {
+                return self;
+              }
+             }
+  model_image_out:
+    type: File
+    doc: Output model image (i.e. <>-model.fits)
+    outputBinding:
+      glob: ${if (inputs.channels_out) {
+                if (inputs.channels_out > 1) {
+                  return (inputs.name).concat("-MFS-model.fits");
+                } else {
+                  return (inputs.name).concat("-model.fits");
+                }
+              } else {
+                return (inputs.name).concat("-model.fits");
+              }
+             }
+  dirty_images_out:
+    type: File[]
+    doc: Output dirty images (i.e. <>-*-dirty.fits)
+    outputBinding:
+      glob: $(inputs.name)*-dirty.fits
+      outputEval: ${if (inputs.channels_out) {
+                var images = [];
+                if (inputs.channels_out > 1) {
+                  var files = self;
+                  for (var i in files) {
+                    if (!files[i].basename.includes("-MFS-")) {
+                      images.push(files[i]);
+                    }
+                  }
+                  return images;
+                }
+              } else {
+                return self;
+              }
+             }
+  dirty_image_out:
+    type: File
+    doc: Output dirty image (i.e. <>-dirty.fits)
+    outputBinding:
+      glob: ${if (inputs.channels_out) {
+                if (inputs.channels_out > 1) {
+                  return (inputs.name).concat("-MFS-dirty.fits");
+                } else {
+                  return (inputs.name).concat("-dirty.fits");
+                }
+              } else {
+                return (inputs.name).concat("-dirty.fits");
               }
              }
   msname_out:
     type: Directory
-    doc: Output images
+    doc: Output ms
     outputBinding:
       outputEval: $(inputs.msname)
