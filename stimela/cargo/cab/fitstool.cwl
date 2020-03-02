@@ -163,7 +163,7 @@ inputs:
 outputs:
   images_out:
     type: File[]
-    doc: Output Image
+    doc: Output Images
     outputBinding:
       glob: ${return inputs.output+'*'}
   image_out:

@@ -300,4 +300,4 @@ outputs:
     type: File[]
     doc: "Output files name. i.e To pass to a tool that requires models in a list format"
     outputBinding:
-      glob: $(inputs.output_skymodel)
+      glob: $(inputs.output_skymodel)*

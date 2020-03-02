@@ -65,7 +65,7 @@ inputs:
     type: Directory
     doc:  Name of input visibility file (MS)
   model:
-    type: File[]
+    type: Directory
     doc: Name of input model image(s)
   field:
     type: string?
@@ -93,7 +93,7 @@ inputs:
     doc:  If True predicted visibility is stored in MODEL_DATA column
 
 outputs:
-  vis_out:
+  msname_out:
     type: Directory
     outputBinding:
       outputEval: $(inputs.vis)

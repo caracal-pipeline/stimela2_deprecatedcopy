@@ -151,4 +151,4 @@ outputs:
     type: File[]
     doc: "Output tigger files. i.e To pass to a tool that requires models in a list format"
     outputBinding:
-      glob: $(inputs.outfile)
+      glob: $(inputs.outfile)*
