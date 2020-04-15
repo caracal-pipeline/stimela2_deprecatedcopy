@@ -69,6 +69,7 @@ inputs:
       type: enum
       symbols: [casa, ascii]
     doc: Type of antenna file
+    default: casa
     inputBinding:
       prefix: --type
   coord_sys:
@@ -77,6 +78,7 @@ inputs:
       symbols: [itrf, enu, wgs84]
     doc: Coordinate system of antenna coordinates in 'antenna-file'. Only needed if
       'type' is 'ascii'; CASA tables are assumed to be in ITRF coords
+    default: itrf
     inputBinding:
       prefix: --coord-sys
   lon_lat_elv:
