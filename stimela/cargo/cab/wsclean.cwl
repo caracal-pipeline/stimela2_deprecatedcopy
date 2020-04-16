@@ -563,6 +563,7 @@ inputs:
     doc: list of model components from wsclean
     inputBinding:
       prefix: --save-source-list
+    default: true
   predict:
     type: boolean?
     doc: list of model components from wsclean
