@@ -17,9 +17,10 @@ recipe.add("simulator", "simsky", {
 
 recipe.add("wsclean", "makeimage", {
     "msname" : recipe.simsky.outputs["msname_out"],
-    "name"  : "test",
-    "scale" : "30asec",
-    "size"  : [512, 512]
+    "niter"  : 1,
+    "name"   : "test",
+    "scale"  : "30asec",
+    "size"   : [512, 512]
 },
     doc="Image data")
 
