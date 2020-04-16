@@ -45,6 +45,7 @@ if not CASA_PREDICT:
         "config"               :   "tdlconf.profiles",
         "use_smearing"         :   False,
         "sefd"                 :   551,  # in Jy
+        "pointing_accuracy"    :   30.0,
         "output_column"        :   "DATA",
         "skymodel"             :   LSM
         },
@@ -74,6 +75,7 @@ if CASA_PREDICT:
         "output_column"        :   "DATA",
         "sim_mode"             :   "add to MS",
         "sefd"                 :   551,  # in Jy
+        "pointing_accuracy"    :   30.0,
         "skymodel"             :   LSM
         },
         doc="Add predicted vis into data column with new model")
