@@ -128,6 +128,10 @@ inputs:
     type: float?
     default: 5
 
+  pointing_accuracy:
+    type: float?
+    default: 0
+
 outputs:
    msname_out:
      type: Directory
