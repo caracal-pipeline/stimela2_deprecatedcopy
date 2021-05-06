@@ -1,10 +1,13 @@
+from stimela import configuratt
 from stimela.exceptions import RecipeValidationError, StimelaBaseException
 from scabha.exceptions import ScabhaBaseException
 from omegaconf.omegaconf import OmegaConf, OmegaConfBaseException
 import click
+import logging
 import os.path
 from typing import List
-from stimela import config
+import stimela
+from stimela import config, logger
 from stimela.main import StimelaContext, cli, pass_stimela_context
 
 from stimela.kitchen.recipe import Recipe, Step
@@ -28,67 +31,67 @@ def exxec(context: StimelaContext, what: str, params: List[str] = []):
     
     params = dict(p.split("=", 1) for p in params if "=" in p)
 
-    # context.log.info("command-line settings are")
-    # print(OmegaConf.to_yaml(settings))
+    log = logger()
 
     if os.path.isfile(what):
-        context.log.info(f"loading recipe/config {what}")
+        log.info(f"loading recipe/config {what}")
 
         # if file contains a recipe entry, treat it as a full config (that can include cabs etc.)
         try:
-            conf = OmegaConf.load(what)
+            conf = configuratt.load_using(what, stimela.CONFIG)
             if 'recipe' in conf:
-                context.config = config.merge_extra_config(context.config, conf)
+                stimela.CONFIG = config.merge_extra_config(stimela.CONFIG, conf)
             else:
                 recipeconf = OmegaConf.structured(Recipe)
                 recipeconf = OmegaConf.merge(recipeconf, conf)
-                context.config.recipe = recipeconf
+                stimela.CONFIG.recipe = recipeconf
         except OmegaConfBaseException as exc:
-            context.log.error(f"Error loading {what}: {exc}")
-            raise RuntimeError(f"Error loading {what}: {exc}")
+            log.error(f"Error loading {what}: {exc}")
+            return 2
 
-        # create recipe object from the config
-        recipe = Recipe(**context.config.recipe)
+        # create recipe object from the config, wrapped in a step
+        step = Step(recipe=Recipe(**stimela.CONFIG.recipe), info=what, params=params)
 
     elif what in context.config.cabs:
         cabname = what
-        context.log.info(f"setting up cab {cabname}")
+        log.info(f"setting up cab {cabname}")
 
         # create step config by merging in settings (var=value pairs from the command line) 
         step = Step(cab=cabname, params=params)
 
-        # create single-step recipe
-        recipe = Recipe(info=f"Running {cabname}")
-        recipe.add_step(step)
-
-        # when validating recipe below, don't use the parameters, since we gave them to the step already
-        params = None
     else:
-        context.log.error(f"'{what}' is neither a recipe file nor a known stimela cab")
+        log.error(f"'{what}' is neither a recipe file nor a known stimela cab")
         return 2 
 
-    retcode = 0
-    # validate completeness
-    try:
-        recipe.validate(context.config, params)
-        context.config.recipe = OmegaConf.structured(recipe)
-    except RecipeValidationError as exc:
-        if not exc.logged:
-            context.log.error(f"recipe validation failed: {exc}")
-        retcode = 1
-
-    for line in recipe.summary:
-        context.log.info(line)
-
-    if not retcode:
+    # prevalidate() is done by run() automatically if not already done, so we only need this in debug mode, so that we
+    # can pretty-print the recipe
+    if log.isEnabledFor(logging.DEBUG):
         try:
-            retcode = recipe.run()
+            step.prevalidate()
         except ScabhaBaseException as exc:
             if not exc.logged:
-                context.log.error(f"recipe run failed with exception {exc}")
+                log.error(f"pre-validation failed: {exc}")
             return 1
-        if retcode != 0:
-            context.log.error(f"recipe run returns an error code of {retcode}")
-            return 1 if retcode is None else retcode
 
-    return retcode
+        log.debug("---------- prevalidated step follows ----------")
+        for line in step.summary:
+            log.debug(line)
+
+    # run step
+
+    try:
+        outputs = step.run()
+    except ScabhaBaseException as exc:
+        if not exc.logged:
+            log.error(f"run failed with exception: {exc}")
+        return 1
+
+    if outputs:
+        log.info("run successful, outputs follow:")
+        for name, value in outputs.items():
+            log.info(f"  {name}: {value}")
+    else:
+        log.info("run successful")
+
+
+    return 0
