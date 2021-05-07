@@ -81,6 +81,8 @@ inputs:
     dtype: int
   nwlayers_factor:
     dtype: float
+  save_source_list:
+    dtype: bool
 
 outputs:
   msout:

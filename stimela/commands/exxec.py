@@ -1,10 +1,11 @@
+from collections import OrderedDict
 import dataclasses
 from stimela import configuratt
 from scabha.exceptions import ScabhaBaseException
 from omegaconf.omegaconf import OmegaConf, OmegaConfBaseException
 import click
 import logging
-import os.path
+import os.path, yaml
 from typing import List, Optional
 import stimela
 from stimela import logger
@@ -21,16 +22,28 @@ from stimela.config import get_config_class
 @click.option("-r", "--recipe", "recipe_name", default="recipe", metavar="SECTION",
                 help="selects recipe to run from YML file, default is 'recipe'")
 @click.argument("what", metavar="RECIPE.yml|CAB") 
-@click.argument("params", nargs=-1, metavar="KEY=VALUE", required=False) 
-def exxec(what: str, params: List[str] = [], recipe_name: str = "recipe"):
+@click.argument("parameters", nargs=-1, metavar="KEY=VALUE", required=False) 
+def exxec(what: str, parameters: List[str] = [], recipe_name: str = "recipe"):
 
     log = logger()
-    invalid = [p for p in params if "=" not in p]
-    if invalid:
-        log.error(f"invalid parameters: {' '.join(invalid)}")
-        return 2
+    params = OrderedDict()
+    errcode = 0
     
-    params = dict(p.split("=", 1) for p in params if "=" in p)
+    for key_value in parameters:
+        if "=" not in key_value:
+            log.error(f"invalid parameter '{key_value}'")
+            errcode = 2
+        else:
+            key, value = key_value.split("=", 1)
+            # parse string as yaml value
+            try:
+                params[key] = yaml.safe_load(value)
+            except Exception as exc:
+                log.error(f"error parsing '{key_value}': {exc}")
+                errcode = 2
+
+    if errcode:
+        return errcode
 
     if os.path.isfile(what):
         log.info(f"loading recipe/config {what}")
