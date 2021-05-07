@@ -24,7 +24,7 @@ cabs:
       ms:
         dtype: MS
         required: true
-        writeable: true
+        writable: true
         alias: data-ms
 
   wsclean:
