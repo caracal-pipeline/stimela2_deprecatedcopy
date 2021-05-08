@@ -80,6 +80,7 @@ class StimelaOptions(object):
 class StimelaLibrary(object):
     params: Dict[str, Any] = EmptyDictDefault()
     recipes: Dict[str, Any] = EmptyDictDefault()
+    steps: Dict[str, Any] = EmptyDictDefault()
 
 def DefaultDirs():
     return field(default_factory=lambda:dict(indir='.', outdir='.'))

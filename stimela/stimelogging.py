@@ -129,6 +129,7 @@ def logger(name="STIMELA", propagate=False, console=True, boring=False,
             log_console_handler.setFormatter(log_formatter)
             log_console_handler.setLevel(loglevel)
             _logger.addHandler(log_console_handler)
+            _logger_console_handlers[_logger.name] = log_console_handler
 
         import scabha
         scabha.set_logger(_logger)
@@ -137,7 +138,7 @@ def logger(name="STIMELA", propagate=False, console=True, boring=False,
 
 
 _logger_file_handlers = {}
-
+_logger_console_handlers = {}
 
 def has_file_logger(log: logging.Logger):
     return log.name in _logger_file_handlers
@@ -165,6 +166,15 @@ def setup_file_logger(log: logging.Logger, logfile: str, level: Optional[Union[i
         log.addHandler(fh)
 
         _logger_file_handlers[log.name] = logfile, fh
+
+        # if logging to console, disable propagation from this sub-logger, and add a console handler
+        # This ensures that parent loggers that log to files to not get repeated messages
+        if log_console_handler:
+            log.propagate = False
+            if log.name not in _logger_console_handlers:
+                _logger_console_handlers[log.name] = log_console_handler
+                log.addHandler(log_console_handler)
+
 
     # resolve level
     if level is not None:

@@ -83,6 +83,12 @@ inputs:
     dtype: float
   save_source_list:
     dtype: bool
+  parallel_deconvolution:
+    dtype: int
+  predict:
+    dtype: bool
+  no_update_model_required:
+    dtype: bool
 
 outputs:
   msout:
@@ -123,4 +129,4 @@ outputs:
   source_list:
     info: Source list
     dtype: File
-    implicit: "{self.prefix}-source-list.txt"
+    implicit: "{self.prefix}-sources.txt"
