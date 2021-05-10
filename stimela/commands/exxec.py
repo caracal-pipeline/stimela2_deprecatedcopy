@@ -15,51 +15,75 @@ from stimela.config import get_config_class
 
 
 @cli.command("exec",
-    help="Execute a single cab, or a YML recipe. Use KEY=VALUE to specify"\
-    " parameters and settings for the cab or recipe",
-    short_help="execute a cab or a YML recipe",
+    help="""
+    Execute a single cab, or a recipe from a YML file. 
+    If the YML files contains multiple recipes, specify the recipe name as an extra argument.
+    Use PARAM=VALUE to specify parameters for the recipe or cab. You can also use X.Y.Z=FOO to
+    change any and all config and/or recipe settings.
+    """,
     no_args_is_help=True)
 @click.option("-s", "--step", "step_names", metavar="STEP", multiple=True,
-                help="""only runs specific step(s) from the recipe. Can be given multiple times to cheery-pick steps.
+                help="""only runs specific step(s) from the recipe. Can be given multiple times to cherry-pick steps.
                 Use [BEGIN]:[END] to specify a range of steps.""")
-@click.argument("what", metavar="filename.yml[:RECIPE_NAME]|CAB") 
-@click.argument("parameters", nargs=-1, metavar="KEY=VALUE", required=False) 
+@click.argument("what", metavar="filename.yml|CAB") 
+@click.argument("parameters", nargs=-1, metavar="[recipe name] [PARAM=VALUE] [X.Y.Z=FOO] ...", required=False) 
 def exxec(what: str, parameters: List[str] = [],  
         step_names: List[str] = []):
 
     log = logger()
     params = OrderedDict()
+    dotlist = []
     errcode = 0
-    
-    for key_value in parameters:
-        if "=" not in key_value:
-            log.error(f"invalid parameter '{key_value}'")
-            errcode = 2
-        else:
-            key, value = key_value.split("=", 1)
-            # parse string as yaml value
-            try:
-                params[key] = yaml.safe_load(value)
-            except Exception as exc:
-                log.error(f"error parsing '{key_value}': {exc}")
+    recipe_name = None
+
+    # parse arguments as recipe name, parameter assignments, or dotlist for OmegaConf    
+    for pp in parameters:
+        if "=" not in pp:
+            if recipe_name is not None:
+                log.error(f"multiple recipe names given")
                 errcode = 2
+            recipe_name = pp
+        else:
+            key, value = pp.split("=", 1)
+            # dotlist
+            if '.' in key:
+                dotlist.append(pp)
+            # else param=value
+            else:
+                # parse string as yaml value
+                try:
+                    params[key] = yaml.safe_load(value)
+                except Exception as exc:
+                    log.error(f"error parsing '{pp}': {exc}")
+                    errcode = 2
 
     if errcode:
         return errcode
 
+    # load extra config settigs from dotkey arguments, to be merged in below
+    # (when loading a recipe file, we want to merge these in AFTER the recipe is loaded, because the arguments
+    # might apply to the recipe)
+    try:
+        extra_config = OmegaConf.from_dotlist(dotlist) if dotlist else OmegaConf.create()
+    except OmegaConfBaseException as exc:
+        log.error(f"error loading command-line dotlist: {exc}")
+        return 2
+
     if what in stimela.CONFIG.cabs:
         cabname = what
+
+        try:
+            stimela.CONFIG = OmegaConf.merge(stimela.CONFIG, extra_config)
+        except OmegaConfBaseException as exc:
+            log.error(f"error applying command-line dotlist: {exc}")
+            return 2
+
         log.info(f"setting up cab {cabname}")
 
         # create step config by merging in settings (var=value pairs from the command line) 
         step = Step(cab=cabname, params=params)
 
     else:
-        if ":" in what:
-            what, recipe_name = what.split(":", 1)
-        else:
-            recipe_name = None
-
         if not os.path.isfile(what):
             log.error(f"'{what}' is neither a recipe file nor a known stimela cab")
             return 2 
@@ -87,7 +111,7 @@ def exxec(what: str, parameters: List[str] = [],
                 return 2
         else:
             if len(all_recipe_names) > 1: 
-                log.error(f"please specify a specific recipe to run using FILENAME.yml:NAME")
+                log.error(f"multiple receipes found, please specify a particular one")
                 return 2
             recipe_name = all_recipe_names[0]
         
@@ -100,7 +124,7 @@ def exxec(what: str, parameters: List[str] = [],
         config_schema = OmegaConf.structured(dcls)
 
         try:
-            stimela.CONFIG = OmegaConf.merge(stimela.CONFIG, config_schema, conf)
+            stimela.CONFIG = OmegaConf.merge(stimela.CONFIG, config_schema, conf, extra_config)
         except OmegaConfBaseException as exc:
             log.error(f"Error loading {what}: {exc}")
             return 2
@@ -110,6 +134,7 @@ def exxec(what: str, parameters: List[str] = [],
         # create recipe object from the config
         recipe = Recipe(**stimela.CONFIG[recipe_name])
 
+        # select substeps if so specified
         if step_names:
             restrict = []
             all_step_names = list(recipe.steps.keys())

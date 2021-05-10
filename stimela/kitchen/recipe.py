@@ -1,6 +1,6 @@
 import glob, time
 import os, os.path, re, logging
-from typing import Any, List, Dict, Optional, Union
+from typing import Any, Tuple, List, Dict, Optional, Union
 from enum import Enum
 from dataclasses import dataclass
 from omegaconf import MISSING, OmegaConf, DictConfig, ListConfig
@@ -308,32 +308,6 @@ class Recipe(Cargo):
         return self.add_step(Step(cab=cabname, params=params, info=info), label=label)
 
 
-    def _add_alias(self, alias_name, step_label, step, step_param_name):
-        is_input = schema = step.inputs.get(step_param_name)
-        if schema is None:
-            schema = step.outputs.get(step_param_name)
-            if schema is None:
-                raise RecipeValidationError(f"alias '{alias_name}' refers to unknown parameter '{step_label}.{step_param_name}'")
-        # check that it's not already set
-        if step_param_name in step.params:
-            raise RecipeValidationError(f"alias '{alias_name}' refers parameter '{step_label}.{step_param_name}' that is already set")
-        # add to our mapping
-        io = self.inputs if is_input else self.outputs
-        existing_schema = io.get(alias_name)
-        if existing_schema is None:                   
-            io[alias_name] = schema.copy()
-        else:
-            # check if definition conflicts
-            if bool(is_input) != bool(io is self.inputs) or schema.dtype != existing_schema.dtype:
-                raise RecipeValidationError(f"alias '{alias_name}' has a conflicting list of definitions (dtype of '{step_label}.{step_param_name}' doesn't match previous dtype)")
-            # alias becomes required if any parm it refers to was required, unless recipe has a default
-            if schema.required:
-                existing_schema.required = True
-        
-        self._alias_map[step_label, step_param_name] = alias_name
-        self._alias_list.setdefault(alias_name, []).append((step, step_param_name))
-
-
     def _update_log_basename(self, name: str = None, params: Optional[Dict[str, Any]] = None):
         # if we're a subrecipe, then name is something like "recipe.A1.stepname"
         if name is not None:
@@ -364,6 +338,47 @@ class Recipe(Cargo):
                     # for other types of steps, simly update the logfile using that as the name
                     else:
                         stimelogging.update_file_logger(step.log, template, dict(name=step_logname, params=params))
+
+
+    def _add_alias(self, alias_name: str, alias_target: Union[str, Tuple]):
+        if type(alias_target) is str:
+            step_label, step_param_name = alias_target.split('.', 1)
+            step = self.steps.get(step_label)
+        else:
+            step, step_label, step_param_name = alias_target
+
+        if step is None:
+            raise RecipeValidationError(f"alias '{alias_name}' refers to unknown step '{step_label}'", log=self.log)
+        # find it in inputs or outputs
+        input_schema = step.inputs.get(step_param_name)
+        output_schema = step.outputs.get(step_param_name)
+        schema = input_schema or output_schema
+        if schema is None:
+            raise RecipeValidationError(f"alias '{alias_name}' refers to unknown step parameter '{step_label}.{step_param_name}'", log=self.log)
+        # check that it's not already set
+        if step_param_name in step.params:
+            raise RecipeValidationError(f"alias '{alias_name}' refers to parameter '{step_label}.{step_param_name}' that is already set", log=self.log)
+        # check that its I/O is consistent
+        if (input_schema and alias_name in self.outputs) or (output_schema and alias_name in self.inputs):
+            raise RecipeValidationError(f"alias '{alias_name}' can't refer to both an input and an output", log=self.log)
+        # see if it's already defined consistently
+        io = self.inputs if input_schema else self.outputs
+        existing_schema = io.get(alias_name)
+        if existing_schema is None:                   
+            io[alias_name] = schema.copy()
+        else:
+            # if existing type was unset, set it quietly
+            if not existing_schema.dtype:
+                existing_schema.dtype = schema.dtype
+            # check if definition conflicts
+            elif schema.dtype != existing_schema.dtype:
+                raise RecipeValidationError(f"alias '{alias_name}': dtype of '{step_label}.{step_param_name}' doesn't match previous dtype)", log=self.log)
+            # alias becomes required if any parm it refers to was required, unless recipe has a default
+            if schema.required:
+                existing_schema.required = True
+        
+        self._alias_map[step_label, step_param_name] = alias_name
+        self._alias_list.setdefault(alias_name, []).append((step, step_param_name))
 
 
     def finalize(self, config=None, log=None, hier_name=None, nesting=0):
@@ -402,14 +417,20 @@ class Recipe(Cargo):
             self._alias_map = OrderedDict()
             self._alias_list = OrderedDict()
 
+            # collect from inputs and outputs
+            for io in self.inputs, self.outputs:
+                for name, schema in io.items():
+                    if schema.aliases:
+                        if schema.dtype != "str" or schema.choices or schema.writable:
+                            raise RecipeValidationError(f"alias '{name}' should not specify type, choices or writability", log=log)
+                        schema.dtype = ""       # tells _add_alias to not check
+                        for alias_target in schema.aliases:
+                            self._add_alias(name, alias_target)
+
+            # collect from aliases section
             for name, alias_list in self.aliases.items():
-                for alias in alias_list:
-                    # verify mapped name
-                    step_label, step_param_name = alias.split('.', 1)
-                    step = self.steps.get(step_label)
-                    if step is None:
-                        raise RecipeValidationError(f"alias '{name}' refers to unknown step '{step_label}'", log=log)
-                    self._add_alias(name, step_label, step, step_param_name)
+                for alias_target in alias_list:
+                    self._add_alias(name, alias_target)
 
             # automatically make aliases for unset step parameters 
             for label, step in self.steps.items():
@@ -418,7 +439,7 @@ class Recipe(Cargo):
                         auto_name = f"{label}_{name}"
                         if auto_name in self.inputs or auto_name in self.outputs:
                             raise RecipeValidationError(f"auto-generated parameter name '{auto_name}' conflicts with another name. Please define an explicit alias for this.", log=log)
-                        self._add_alias(auto_name, label, step, name)
+                        self._add_alias(auto_name, (step, label, name))
 
             # these will be re-merged when needed again
             self._inputs_outputs = None
@@ -574,6 +595,8 @@ class Recipe(Cargo):
         subst1.recipe = self.make_substitition_namespace()
         subst1.steps  = OmegaConf.create()
         subst1.previous = None
+        subst1.vars = self.vars
+        subst1.dirs = self.dirs
 
         # iterate over for-loop values (if not looping, this is set up to [None] in advance)
         for count, iter_var in enumerate(self._for_loop_values):

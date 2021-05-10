@@ -23,19 +23,19 @@ inputs:
   prefix:
     info: Prefix of output products
     dtype: str
-    alias: name
+    nom_de_guerre: name
     required: true
   column:
     dtype: str
-    alias: data-column
+    nom_de_guerre: data-column
   nchan:
     info: Channels out
     dtype: int
-    alias: channels-out
-  j:
+    nom_de_guerre: channels-out
+  threads:
     info: Threads
     dtype: int
-    alias: threads
+    nom_de_guerre: j
   pol:
     info: Polarizations
     dtype: str
@@ -59,6 +59,8 @@ inputs:
   niter:
     info: Number of minor clean iterations
     dtype: int
+  fits_mask:
+    dtype: File
   auto_threshold:
     dtype: float
   auto_mask:

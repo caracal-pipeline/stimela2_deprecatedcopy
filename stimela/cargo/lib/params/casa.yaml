@@ -5,7 +5,7 @@ mssel_inputs:  # a standard section for CASA tasks that have a vis argument, and
     dtype: dir
     writable: True
     required: true
-    alias: msname
+    nom_de_guerre: msname
 
   field:
     info: "Select field using field id(s) or field name(s)"
