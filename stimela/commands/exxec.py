@@ -132,7 +132,12 @@ def exxec(what: str, parameters: List[str] = [],
         log.info(f"selected recipe is '{recipe_name}'")
 
         # create recipe object from the config
-        recipe = Recipe(**stimela.CONFIG[recipe_name])
+        try:
+            recipe = Recipe(**stimela.CONFIG[recipe_name])
+        except ScabhaBaseException as exc:
+            if not exc.logged:
+                log.error(f"Error loading recipe '{recipe_name}': {exc}")
+            return 2
 
         # select substeps if so specified
         if step_names:
@@ -186,7 +191,7 @@ def exxec(what: str, parameters: List[str] = [],
             return 1
 
         log.debug("---------- prevalidated step follows ----------")
-        for line in step.summary:
+        for line in step.summary():
             log.debug(line)
 
     # run step

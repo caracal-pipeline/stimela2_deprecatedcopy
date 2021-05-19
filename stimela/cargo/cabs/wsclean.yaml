@@ -1,7 +1,7 @@
 name: wsclean
 image: stimela/wsclean
 command: wsclean
-info: Rapid Measurement Set plotting with xarray-ms and datashader.
+info: WSClean imager
 
 defaults:
   weight: "briggs 0."
@@ -13,105 +13,28 @@ policies:
   replace: { '_': '-' }
 
 inputs:
-  ms:
-    info: Measurement set(s)
-    writable: true
-    dtype: MS
-    required: true
-    policies:
-      positional: true
-  prefix:
-    info: Prefix of output products
-    dtype: str
-    nom_de_guerre: name
-    required: true
-  column:
-    dtype: str
-    nom_de_guerre: data-column
-  nchan:
-    info: Channels out
-    dtype: int
-    nom_de_guerre: channels-out
-  threads:
-    info: Threads
-    dtype: int
-    nom_de_guerre: j
-  pol:
-    info: Polarizations
-    dtype: str
-  weight:
-    info: "Weightmode can be: natural, uniform, briggs. Default: uniform. When using Briggs' weighting, add the robustness parameter, like: '-weight briggs 0.5'"
-    dtype: str
-    policies:
-      split: " "
-      repeat: list
-  size:
-    info: Image size in pixels
-    dtype: int
-    required: true
-    policies:
-      repeat: list
-      format_list: ["{size}", "{size}"]
-  scale:
-    info: Angular pixel size
-    dtype: Union[str, float]
-    required: true
-  niter:
-    info: Number of minor clean iterations
-    dtype: int
-  fits_mask:
-    dtype: File
-  auto_threshold:
-    dtype: float
-  auto_mask:
-    dtype: float
-  gain:
-    dtype: float
-  mgain:
-    dtype: float
-  join_channels:
-    dtype: bool
-  fit_spectral_pol:
-    dtype: int
-  fit_beam:
-    dtype: bool
-  elliptical_beam:
-    dtype: bool
-  padding:
-    dtype: float
-  nwlayers:
-    dtype: int
-  nwlayers_factor:
-    dtype: float
+  _use: lib.params.wsclean.base_inputs
   save_source_list:
-    dtype: bool
-  parallel_deconvolution:
-    dtype: int
-  predict:
-    dtype: bool
-  no_update_model_required:
     dtype: bool
 
 outputs:
-  msout:
-    info: Output MS
-    dtype: MS
-    implicit: "{self.ms}"
+  _use: lib.params.wsclean.base_outputs
+
   dirty:
     info: Dirty images
     dtype: List[File]
-    implicit: "{self.prefix}-????-dirty.fits"
+    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-dirty.fits"
   restored: 
     info: Restored images
     dtype: List[File]
-    implicit: "{self.prefix}-????-image.fits"
+    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-image.fits"
   residual:
     dtype: List[File]
-    implicit: "{self.prefix}-????-residual.fits"
+    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-residual.fits"
   model:
     info: Model images
     dtype: List[File]
-    implicit: "{self.prefix}-????-model.fits"
+    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-model.fits"
   restored_mfs:
     info: Restored MFS image
     dtype: File
@@ -128,7 +51,3 @@ outputs:
     info: Dirty MFS image
     dtype: File
     implicit: "{self.prefix}-MFS-dirty.fits"
-  source_list:
-    info: Source list
-    dtype: File
-    implicit: "{self.prefix}-sources.txt"

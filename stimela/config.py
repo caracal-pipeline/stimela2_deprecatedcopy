@@ -7,8 +7,8 @@ from omegaconf.omegaconf import MISSING, OmegaConf
 from omegaconf.errors import OmegaConfBaseException
 from collections import OrderedDict
 import stimela
+from scabha.validate import SubstitutionNamespace
 from stimela import configuratt
-
 from stimela.exceptions import *
 
 CONFIG_FILE = os.path.expanduser("~/.config/stimela.conf")
@@ -188,5 +188,5 @@ _ts = time.strftime("%H%M%S")
 
 # dictionary of standard substitutions
 
-SUBSTITUTIONS = OmegaConf.create(dict(date=_ds, time=_ts, datetime=f"{_ds}-{_ts}"))
+SUBSTITUTIONS = SubstitutionNamespace(date=_ds, time=_ts, datetime=f"{_ds}-{_ts}")
 

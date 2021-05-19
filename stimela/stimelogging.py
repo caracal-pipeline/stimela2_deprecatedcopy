@@ -1,6 +1,7 @@
 import sys, os.path, re
 import logging
 from typing import Optional, Dict, Any, Union
+from scabha.validate import SubstitutionNamespace
 
 class MultiplexingHandler(logging.Handler):
     """handler to send INFO and below to stdout, everything above to stderr"""
@@ -190,8 +191,8 @@ def make_filename_substitutions(template: str, subst: Dict[str, Any], default_su
     import stimela.config
     default_subst = default_subst or stimela.config.SUBSTITUTIONS
     if subst:
-        default_subst = default_subst.copy()
-        default_subst.update(**subst)
+        default_subst = SubstitutionNamespace(**default_subst)
+        default_subst._update_(**subst)
 
     return re.sub(r'[^a-zA-Z0-9_./-]', '_', template.format(**default_subst))
 

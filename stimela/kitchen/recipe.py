@@ -12,7 +12,7 @@ from stimela import logger, stimelogging
 from stimela.exceptions import *
 
 from scabha import validate
-from scabha.validate import join_quote
+from scabha.validate import SubstitutionNamespace, join_quote
 
 from . import runners
 
@@ -46,9 +46,8 @@ class Step:
         # logger for the step
         self.log = None
 
-    @property
-    def summary(self):
-        return self.cargo and self.cargo.summary 
+    def summary(self, recursive=True):
+        return self.cargo and self.cargo.summary(recursive=recursive)
 
     @property
     def finalized(self):
@@ -122,23 +121,39 @@ class Step:
             if self.invalid_params:
                 raise StepValidationError(f"{self.cargo.name} has the following invalid parameters: {join_quote(self.invalid_params)}")
 
+    def log_summary(self, level, title, color=None):
+        extra = dict(color=color, boldface=True)
+        if self.log.isEnabledFor(level):
+            self.log.log(level, f"### {title}", extra=extra)
+            del extra['boldface']
+            for line in self.summary(recursive=False):
+                self.log.log(level, line, extra=extra)
+
     def run(self, subst=None):
         """Runs the step"""
         self.prevalidate()
-        subst = subst or OmegaConf.create({'config': self.config})
+        subst = subst or SubstitutionNamespace(config=self.config)
 
         self.log.debug(f"validating inputs")
+        validated = None
         try:
             params = self.cargo.validate_inputs(self.params, subst, loosely=self.skip)
+            validated = True
         except ScabhaBaseException as exc:
+            level = logging.WARNING if self.skip else logging.ERROR
             if not exc.logged:
-                self.log.error(f"error validating inputs: {exc}")
-            raise
-
-        if self.log.isEnabledFor(logging.DEBUG):
-            self.log.debug("---------- validated inputs ----------")
-            for line in self.summary:
-                self.log.debug(line)
+                self.log.log(level, f"error validating inputs: {exc}")
+                exc.logged = True
+            self.log_summary(level, "summary of inputs follows", color="WARNING")
+            # raise up, unless step is being skipped
+            if self.skip:
+                self.log.warning("since the step is being skipped, this is not fatal")
+            else:
+                raise
+        
+        # log inputs
+        if validated and not self.skip:
+            self.log_summary(logging.INFO, "validated inputs", color="GREEN")
 
         # bomb out if some inputs failed to validate or substitutions resolve
         if self.cargo.invalid_params or self.cargo.unresolved_params:
@@ -159,26 +174,38 @@ class Step:
             except ScabhaBaseException as exc:
                 if not exc.logged:
                     self.log.error(f"error running step: {exc}")
+                    exc.logged = True
                 raise
 
         self.log.debug(f"validating outputs")
+        validated = False
         # insert output values into params for re-substitution and re-validation
         try:
             params = self.cargo.validate_outputs(params, subst, loosely=self.skip)
+            validated = True
         except ScabhaBaseException as exc:
+            level = logging.WARNING if self.skip else logging.ERROR
             if not exc.logged:
-                self.log.error(f"error validating outputs: {exc}")
-            raise
+                self.log.log(level, f"error validating outputs: {exc}")
+                exc.logged = True
+            # raise up, unless step is being skipped
+            if self.skip:
+                self.log.warning("since the step was skipped, this is not fatal")
+            else:
+                self.log_summary(level, "failed outputs", color="WARNING")
+                raise
 
-        if self.log.isEnabledFor(logging.DEBUG):
-            self.log.debug("---------- validated outputs ----------")
-            for line in self.summary:
-                self.log.debug(line)
+        if validated:
+            self.log_summary(logging.DEBUG, "validated outputs")
 
         # again, bomb put if something was invalid
         if self.cargo.invalid_params or self.cargo.unresolved_params:
             invalid = self.cargo.invalid_params + self.cargo.unresolved_params
-            raise StepValidationError(f"invalid inputs: {join_quote(invalid)}", log=self.log)
+            if self.skip:
+                self.log.warning(f"invalid inputs: {join_quote(invalid)}")
+                self.log.warning("since the step was skipped, this is not fatal")
+            else:
+                raise StepValidationError(f"invalid inputs: {join_quote(invalid)}", log=self.log)
 
         return {name: value for name, value in params.items() if name in self.outputs}
 
@@ -229,6 +256,12 @@ class Recipe(Cargo):
 
     def __post_init__ (self):
         Cargo.__post_init__(self)
+        # check that schemas are valid
+        for io in self.inputs, self.inputs_outputs:
+            for name, schema in io.items():
+                if not schema:
+                    raise RecipeValidationError(f"'{name}' does not define a valid schema")
+        # check for repeated aliases
         for name, alias_list in self.aliases.items():
             if name in self.inputs_outputs:
                 raise RecipeValidationError(f"alias '{name}' also appears under inputs or outputs")
@@ -541,26 +574,26 @@ class Recipe(Cargo):
         # resolved values propagate up to substeps if aliases, and propagate back if implicit
         self._propagate_parameter(name, value)
 
-    @property
-    def summary(self):
+    def summary(self, recursive=True):
         """Returns list of lines with a summary of the recipe state
         """
         lines = [f"recipe '{self.name}':"] + [f"  {name} = {value}" for name, value in self.params.items()] + \
                 [f"  {name} = ???" for name in self.missing_params]
-        lines.append("  steps:")
-        for name, step in self.steps.items():
-            stepsum = step.summary
-            lines.append(f"    {name}: {stepsum[0]}")
-            lines += [f"    {x}" for x in stepsum[1:]]
+        if recursive:
+            lines.append("  steps:")
+            for name, step in self.steps.items():
+                stepsum = step.summary()
+                lines.append(f"    {name}: {stepsum[0]}")
+                lines += [f"    {x}" for x in stepsum[1:]]
         return lines
 
 
-    def _run(self, subst: Optional[DictConfig]=None) -> Dict[str, Any]:
+    def _run(self, subst: Optional[Dict[str, Any]]=None) -> Dict[str, Any]:
         """Internal recipe run method. Meant to be called from a wrapper Step object (which validates the parameters, etc.)
 
         Parameters
         ----------
-        subst : DictConfig, optional
+        subst : SubstitutionDict, optional
             OmegaConf dictionary of substitutions applied to parameters
 
         Returns
@@ -591,9 +624,9 @@ class Recipe(Cargo):
                     raise RecipeValidationError(f"recipe '{self.name}' is missing required input '{name}'", log=self.log)
 
         # set up substitutions and run the steps
-        subst1 = subst.copy() if subst else OmegaConf.create({'config': self.config})
+        subst1 = SubstitutionNamespace(**subst) if subst else SubstitutionNamespace(config=self.config)
         subst1.recipe = self.make_substitition_namespace()
-        subst1.steps  = OmegaConf.create()
+        subst1.steps  = {}
         subst1.previous = None
         subst1.vars = self.vars
         subst1.dirs = self.dirs
@@ -611,9 +644,10 @@ class Recipe(Cargo):
             for label, step in self.steps.items():
                 try:
                     step_outputs = step.run(subst1)
-                except StimelaBaseException as exc:
+                except ScabhaBaseException as exc:
                     if not exc.logged:
                         self.log.error(f"error running step '{label}': {exc}")
+                        exc.logged = True
                     raise
                 # put all step parameters into the substitution dict, as they're all validated now
                 subst1.previous = OmegaConf.create(step.cargo.params)

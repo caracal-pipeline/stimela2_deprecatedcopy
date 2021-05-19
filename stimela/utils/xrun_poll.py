@@ -1,4 +1,4 @@
-import select, traceback, subprocess, errno, re, time, logging, os, sys
+import select, traceback, subprocess, errno, re, time, logging, os, sys, signal
 
 DEBUG = 0
 from . import StimelaCabRuntimeError, StimelaProcessRuntimeError
@@ -216,10 +216,26 @@ def xrun(command, options, log=None, env=None, timeout=-1, kill_callback=None, o
             kill_callback() 
             log.info(f"the {command_name} process was shut down successfully",
                      extra=dict(stimela_subprocess_output=(command_name, "status")))
+            proc.wait()
         else:
-            log.warning(f"Ctrl+C caught, killing {command_name} process")
-            proc.kill()
-        proc.wait()
+            log.warning(f"Ctrl+C caught, interrupting {command_name} process {proc.pid}")
+            proc.send_signal(signal.SIGINT)
+            for retry in range(10):
+                if retry:
+                    log.info(f"Process {proc.pid} not exited after {retry} seconds, waiting a bit longer...")
+                try:
+                    proc.wait(1)
+                    log.info(f"Process {proc.pid} has exited with return code {proc.returncode}")
+                    break
+                except subprocess.TimeoutExpired as exc:
+                    if retry == 4:
+                        log.warning(f"Terminating process {proc.pid}")
+                        proc.terminate()
+            else:
+                log.warning(f"Killing process {proc.pid}")
+                proc.kill()
+                proc.wait()
+    
         raise StimelaCabRuntimeError(f"{command_name} interrupted with Ctrl+C")
 
     except Exception as exc:

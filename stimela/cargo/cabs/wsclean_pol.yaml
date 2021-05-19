@@ -1,0 +1,61 @@
+name: wsclean_pol
+image: stimela/wsclean
+command: wsclean
+info: WSClean imager, polarized mode
+
+defaults:
+  weight: "briggs 0."
+  column: DATA
+  pol: IQUV
+
+policies:
+  positional: false
+  prefix: "-"
+  replace: { '_': '-' }
+
+inputs:
+  _use: lib.params.wsclean.base_inputs
+
+  pol: 
+    choices: [IQ, IV, IQUV]
+  join_polarizations:
+    dtype: bool
+
+outputs:
+  _use: lib.params.wsclean.base_outputs
+
+  dirty:
+    info: Dirty images
+    dtype: List[File]
+    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-[IQUV]-dirty.fits"
+  restored: 
+    info: Restored images
+    dtype: List[File]
+    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-[IQUV]-image.fits"
+  residual:
+    dtype: List[File]
+    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-[IQUV]-residual.fits"
+  model:
+    info: Model images
+    dtype: List[File]
+    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-[IQUV]-model.fits"
+  restored_mfs_i:
+    info: Restored MFS images
+    dtype: File
+    implicit: "{self.prefix}-MFS-I-image.fits"
+  restored_mfs:
+    info: Restored MFS images
+    dtype: List[File]
+    implicit: "{self.prefix}-MFS-[IQUV]-image.fits"
+  residual_mfs:
+    info: Residual MFS images
+    dtype: List[File]
+    implicit: "{self.prefix}-MFS-[IQUV]-residual.fits"
+  model_mfs:
+    info: Model MFS images
+    dtype: List[File]
+    implicit: "{self.prefix}-MFS-[IQUV]-model.fits"
+  dirty_mfs:
+    info: Dirty MFS images
+    dtype: List[File]
+    implicit: "{self.prefix}-MFS-[IQUV]-dirty.fits"
