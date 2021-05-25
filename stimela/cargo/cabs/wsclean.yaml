@@ -14,8 +14,6 @@ policies:
 
 inputs:
   _use: lib.params.wsclean.base_inputs
-  save_source_list:
-    dtype: bool
 
 outputs:
   _use: lib.params.wsclean.base_outputs

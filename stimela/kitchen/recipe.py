@@ -358,13 +358,15 @@ class Recipe(Cargo):
                 self.log.error(f"bad substitution in logname '{template}': {exc}")
                 return
 
+            self.log.info(f"log filename will be {logname} (template was {template}, name was {name})")
+
             # update our file handler accordingly
             stimelogging.update_file_logger(self.log, logname, dict(name=self._hier_name))
             
             # do the same for substeps 
             for label, step in self.steps.items():
                 if stimelogging.has_file_logger(step.log):
-                    step_logname = f"{logname}.{label}"
+                    step_logname = f"{name}.{label}"
                     # for nested recipes, recursively invoke with name="recipeA1.stepname.B1.stepname", but no parameters
                     if type(step.cargo) is Recipe:
                         step.cargo._update_log_basename(name=step_logname)
@@ -430,6 +432,8 @@ class Recipe(Cargo):
                 log.propagate = True
                 if config.opts.log.enable and config.opts.log.nest >= 1:
                     stimelogging.update_file_logger(log, self.init_logname or config.opts.log.name, dict(name=hier_name))
+
+            log.debug(f"nesting level is {nesting}, max configured is {config.opts.log.nest}")
 
             # now make loggers for our children
             for label, step in self.steps.items():
