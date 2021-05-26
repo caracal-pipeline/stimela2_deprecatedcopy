@@ -76,6 +76,8 @@ base_inputs:
     dtype: bool
   no_update_model_required:
     dtype: bool
+  temp_dir:
+    dtype: Dir
 
 base_outputs:
   msout:
