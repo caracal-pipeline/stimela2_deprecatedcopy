@@ -37,10 +37,14 @@ base_inputs:
     policies:
       repeat: list
       format_list: ["{size}", "{size}"]
+  multiscale:
+    dtype: bool
   scale:
     info: Angular pixel size
     dtype: Union[str, float]
     required: true
+  taper_gaussian:
+    dtype: str
   niter:
     info: Number of minor clean iterations
     dtype: int

@@ -12,7 +12,7 @@ requirements = ["pyyaml",
                 "scabha",
                 "ruamel.yaml",
                 "munch",
-                "omegaconf",
+                "omegaconf>=2.1pre1",
                 "click",
                 "pydantic"
                 ],
