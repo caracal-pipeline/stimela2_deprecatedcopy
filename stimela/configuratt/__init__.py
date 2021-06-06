@@ -114,9 +114,40 @@ def resolve_config_refs(conf, name: str, *sources):
     return conf
 
 
-def load_using(path: str, conf: DictConfig, name: Optional[str]=None, selfrefs: bool=True):
+def load_using(path: str, conf: DictConfig, name: Optional[str]=None, includes: bool=True, selfrefs: bool=True):
+    """Loads config file, using a previously loaded config to resolve _use references.
+
+    Args:
+        path (str): path to config file
+        conf (DictConfig): existing config to be used to resolve "_use" references
+        name (Optional[str], optional): name of this config files, used for error messages.
+        includes (bool, optional): If True (default), "_include" references will be processed
+        selfrefs (bool, optional): If False, "_use" references will only be looked up in existing config.
+            If True (default), they'll also be looked up within the new config.
+
+    Returns:
+        DictConfig: loaded OmegaConf object
+    """
     subconf = OmegaConf.load(path)
     name = name or os.path.basename(path)
+
+    includes = includes and subconf.get('_include')
+
+    if includes:
+        del subconf['_include']
+
+        if isinstance(includes, str):
+            includes = [includes]
+        elif not isinstance(includes, (tuple, list, ListConfig)) or not all(isinstance(x, str) for x in includes):
+            raise RuntimeError(f"config error in {path}: _include: must be a string or a list of strings")
+
+        # load includes
+        for incl in includes:
+            if not os.path.exists(incl):
+                raise RuntimeError(f"config error in {path}: _include: {incl} is not a valid filenae")
+            incl_conf = OmegaConf.load(incl)
+            subconf = OmegaConf.merge(incl_conf, subconf)
+
     return resolve_config_refs(subconf, name, *((conf, subconf) if selfrefs else (conf,)))
 
 
