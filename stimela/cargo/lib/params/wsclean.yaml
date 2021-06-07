@@ -80,6 +80,11 @@ base_inputs:
     dtype: bool
   no_update_model_required:
     dtype: bool
+  cont:
+    dtype: bool
+    nom_de_guerre: continue 
+  subtract_model:
+    dtype:  bool
   temp_dir:
     dtype: Directory
 

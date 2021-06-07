@@ -164,8 +164,12 @@ def exxec(what: str, parameters: List[str] = [],
                         last = len(recipe.steps)-1
                     restrict += all_step_names[first:last+1]
                 else:
-                    recipe.enable_step(name)  # a single step is force-enabled if skipped in config file
-                    restrict.append(name)
+                    for name1 in name.split(","):
+                        if name1 not in all_step_names:
+                            log.error(f"No such recipe step: '{name1}")
+                            return 2
+                        recipe.enable_step(name1)  # config file may have skip=True, but we force-enable here
+                        restrict.append(name1)
             recipe.restrict_steps(restrict, force_enable=False)
 
             if any(step.skip for step in recipe.steps.values()):
