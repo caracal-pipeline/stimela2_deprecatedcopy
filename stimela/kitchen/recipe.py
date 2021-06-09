@@ -665,6 +665,10 @@ class Recipe(Cargo):
                             # clear implicit setting
                             self.outputs[name].implicit = None
 
+        # delete loop variable from parameters (in case we are run again)
+        if self.for_loop and self.for_loop.var in self.params:
+            del self.params[self.for_loop.var]
+
         self.log.info(f"recipe '{self.name}' executed successfully")
         return {name: value for name, value in self.params.items() if name in self.outputs}
 
