@@ -51,6 +51,8 @@ base_inputs:
     dtype: int
   fits_mask:
     dtype: File
+  threshold:
+    dtype: float
   auto_threshold:
     dtype: float
   auto_mask:
@@ -58,6 +60,8 @@ base_inputs:
   gain:
     dtype: float
   mgain:
+    dtype: float
+  baseline_averaging:
     dtype: float
   join_channels:
     dtype: bool
@@ -77,6 +81,8 @@ base_inputs:
     dtype: bool
   parallel_deconvolution:
     dtype: int
+  parallel_gridding:
+    dtype: int
   predict:
     dtype: bool
   no_update_model_required:
@@ -86,6 +92,8 @@ base_inputs:
     nom_de_guerre: continue 
   subtract_model:
     dtype:  bool
+  use_wgridder:
+    dtype: bool
   temp_dir:
     dtype: Directory
 
