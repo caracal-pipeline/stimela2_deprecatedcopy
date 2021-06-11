@@ -96,6 +96,8 @@ base_inputs:
     dtype: bool
   temp_dir:
     dtype: Directory
+  log_time:
+    dtype: bool
 
 base_outputs:
   msout:
