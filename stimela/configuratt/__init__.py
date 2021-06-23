@@ -7,6 +7,11 @@ from omegaconf.listconfig import ListConfig
 from omegaconf.errors import OmegaConfBaseException
 from typing import Any, List, Dict, Optional, Union, Callable
 
+from yaml.error import YAMLError
+
+class ConfigurattError(RuntimeError):
+    pass
+
 
 def _lookup_nameseq(name_seq: List[str], source_dict: Dict):
     """Internal helper: looks up nested item ('a', 'b', 'c') in a nested dict
@@ -114,6 +119,9 @@ def resolve_config_refs(conf, name: str, *sources):
     return conf
 
 
+PATH = ['.']
+
+
 def load_using(path: str, conf: DictConfig, name: Optional[str]=None, includes: bool=True, selfrefs: bool=True):
     """Loads config file, using a previously loaded config to resolve _use references.
 
@@ -139,14 +147,21 @@ def load_using(path: str, conf: DictConfig, name: Optional[str]=None, includes: 
         if isinstance(includes, str):
             includes = [includes]
         elif not isinstance(includes, (tuple, list, ListConfig)) or not all(isinstance(x, str) for x in includes):
-            raise RuntimeError(f"config error in {path}: _include: must be a string or a list of strings")
+            raise ConfigurattError(f"config error in {path}: _include: must be a string or a list of strings")
 
         # load includes
         for incl in includes:
-            if not os.path.exists(incl):
-                raise RuntimeError(f"config error in {path}: _include: {incl} is not a valid filenae")
-            incl_conf = OmegaConf.load(incl)
-            subconf = OmegaConf.merge(incl_conf, subconf)
+            if os.path.isabs(incl):
+                candidates = [incl]
+            else:
+                candidates = [os.path.join(p, incl) for p in PATH]
+            for pathname in candidates:
+                if os.path.exists(pathname):
+                    incl_conf = OmegaConf.load(pathname)
+                    subconf = OmegaConf.merge(incl_conf, subconf)
+                    break
+                else:
+                    raise ConfigurattError(f"config error in {path}: _include: {incl} not found in {':'.join(PATH)}")
 
     return resolve_config_refs(subconf, name, *((conf, subconf) if selfrefs else (conf,)))
 
@@ -199,8 +214,8 @@ def build_nested_config(conf, filelist: List[str], schema,
         try:
             section_content[name] = OmegaConf.merge(schema, 
                 resolve_config_refs(subconf, f"{section_name}.{name}" if section_name else name, conf, subconf))
-        except OmegaConfBaseException as exc:
-            raise RuntimeError(f"config error in {path}:\n  {exc}")
+        except (OmegaConfBaseException, YAMLError) as exc:
+            raise ConfigurattError(f"config error in {path}: {exc}")
 
     return section_content
 

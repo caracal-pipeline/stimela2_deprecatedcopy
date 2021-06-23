@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from omegaconf.omegaconf import MISSING, OmegaConf
 from omegaconf.errors import OmegaConfBaseException
 from collections import OrderedDict
+
+from yaml.error import YAMLError
 import stimela
 from scabha.validate import SubstitutionNamespace
 from stimela import configuratt
@@ -86,13 +88,21 @@ def DefaultDirs():
     return field(default_factory=lambda:dict(indir='.', outdir='.'))
 
 _CONFIG_BASENAME = "stimela.conf"
+_STIMELA_CONFDIR = os.path.os.path.expanduser("~/.stimela")
 
 # dict of config file locations to check, in order of preference
 CONFIG_LOCATIONS = OrderedDict(
     local   = _CONFIG_BASENAME,
     venv    = os.environ.get('VIRTUAL_ENV', None) and os.path.join(os.environ['VIRTUAL_ENV'], _CONFIG_BASENAME),
-    user    = os.path.join(os.path.os.path.expanduser("~/.config"), _CONFIG_BASENAME)
+    stimela = os.path.isdir(_STIMELA_CONFDIR) and os.path.join(_STIMELA_CONFDIR, _CONFIG_BASENAME),
+    user    = os.path.join(os.path.os.path.expanduser("~/.config"), _CONFIG_BASENAME),
 )
+
+if 'VIRTUAL_ENV' in os.environ:
+    configuratt.PATH.append(os.environ['VIRTUAL_ENV'])
+if os.path.isdir(_STIMELA_CONFDIR):
+    configuratt.PATH.append(_STIMELA_CONFDIR)
+configuratt.PATH += os.environ.get("STIMELA_INCLUDE", '').split(':')
 
 # set to the config file that was actually found
 CONFIG_LOADED = None
@@ -109,6 +119,8 @@ def merge_extra_config(conf, newconf):
 
 
 StimelaConfig = None
+
+ConfigExceptionTypes = (configuratt.ConfigurattError, OmegaConfBaseException, YAMLError)
 
 def get_config_class():
     return StimelaConfig
@@ -137,16 +149,28 @@ def load_config(extra_configs=List[str]):
 
     # merge base/*/*yaml files into the config, under base.imagename
     base_configs = glob.glob(f"{stimela_dir}/cargo/base/*/*.yaml")
-    conf.base = build_nested_config(conf, base_configs, base_schema, nameattr='name', include_path='path', section_name='base')
+    try:
+        conf.base = build_nested_config(conf, base_configs, base_schema, nameattr='name', include_path='path', section_name='base')
+    except ConfigExceptionTypes as exc:
+        log.error(f"failed to build base configuration: {exc}")
+        return None
 
     # merge base/*/*yaml files into the config, under base.imagename
     for path in glob.glob(f"{stimela_dir}/cargo/lib/params/*.yaml"):
         name = os.path.splitext(os.path.basename(path))[0]
-        conf.lib.params[name] = OmegaConf.load(path)
+        try:
+            conf.lib.params[name] = OmegaConf.load(path)
+        except ConfigExceptionTypes as exc:
+            log.error(f"error loading {path}: {exc}")
+            return None
 
     # merge all cab/*/*yaml files into the config, under cab.taskname
     cab_configs = glob.glob(f"{stimela_dir}/cargo/cabs/*.yaml")
-    conf.cabs = build_nested_config(conf, cab_configs, cab_schema, nameattr='name', section_name='cabs')
+    try:
+        conf.cabs = build_nested_config(conf, cab_configs, cab_schema, nameattr='name', section_name='cabs')
+    except ConfigExceptionTypes as exc:
+        log.error(f"failed to build cab configuration: {exc}")
+        return None
 
     conf.opts = opts_schema
 
@@ -158,7 +182,7 @@ def load_config(extra_configs=List[str]):
             conf = merge_extra_config(conf, newconf)
             if not CONFIG_LOADED:
                 CONFIG_LOADED = config_file
-        except OmegaConfBaseException as exc:
+        except ConfigExceptionTypes as exc:
             log.error(f"error reading {config_file}: {exc}")
         return conf
 

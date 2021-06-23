@@ -1,5 +1,5 @@
 # -*- coding: future_fstrings -*-
-import os, logging, re, time
+import os, logging, re, time, sys
 import click
 import stimela
 from omegaconf import OmegaConf
@@ -39,6 +39,10 @@ def cli(backend, config_files=[], verbose=False):
 
     # load config files
     stimela.CONFIG = config.load_config(extra_configs=config_files)
+    if stimela.CONFIG is None:
+        log.error("failed to load configuration, exiting")
+        sys.exit(1)
+
     if config.CONFIG_LOADED:
         log.info(f"loaded config from {config.CONFIG_LOADED}") 
 

@@ -33,7 +33,7 @@ class Step:
     name: Optional[str] = None
 
     _skip: Conditional = None                       # skip this step if conditional evaluates to true
-    _break_on: Conditional = None                   # break out (of parent receipe) if conditional evaluates to true
+    _break_on: Conditional = None                   # break out (of parent recipe) if conditional evaluates to true
 
     def __post_init__(self):
         if bool(self.cab) == bool(self.recipe):

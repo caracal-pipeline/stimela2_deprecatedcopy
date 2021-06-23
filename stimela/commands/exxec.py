@@ -1,8 +1,11 @@
 from collections import OrderedDict
 import dataclasses
+
+from yaml.error import YAMLError
 from stimela import configuratt
 from scabha.exceptions import ScabhaBaseException
 from omegaconf.omegaconf import OmegaConf, OmegaConfBaseException
+from stimela.config import ConfigExceptionTypes
 import click
 import logging
 import os.path, yaml
@@ -93,8 +96,8 @@ def exxec(what: str, parameters: List[str] = [],
         # if file contains a recipe entry, treat it as a full config (that can include cabs etc.)
         try:
             conf = configuratt.load_using(what, stimela.CONFIG)
-        except OmegaConfBaseException as exc:
-            log.error(f"Error loading {what}: {exc}")
+        except ConfigExceptionTypes as exc:
+            log.error(f"error loading {what}: {exc}")
             return 2
 
         # anything that is not a standard config section will be treated as a recipe
@@ -111,7 +114,7 @@ def exxec(what: str, parameters: List[str] = [],
                 return 2
         else:
             if len(all_recipe_names) > 1: 
-                log.error(f"multiple receipes found, please specify a particular one")
+                log.error(f"multiple recipes found, please specify one on the command line")
                 return 2
             recipe_name = all_recipe_names[0]
         
@@ -126,7 +129,7 @@ def exxec(what: str, parameters: List[str] = [],
         try:
             stimela.CONFIG = OmegaConf.merge(stimela.CONFIG, config_schema, conf, extra_config)
         except OmegaConfBaseException as exc:
-            log.error(f"Error loading {what}: {exc}")
+            log.error(f"error loading {what}: {exc}")
             return 2
 
         log.info(f"selected recipe is '{recipe_name}'")
@@ -136,7 +139,7 @@ def exxec(what: str, parameters: List[str] = [],
             recipe = Recipe(**stimela.CONFIG[recipe_name])
         except ScabhaBaseException as exc:
             if not exc.logged:
-                log.error(f"Error loading recipe '{recipe_name}': {exc}")
+                log.error(f"error loading recipe '{recipe_name}': {exc}")
             return 2
 
         # select substeps if so specified

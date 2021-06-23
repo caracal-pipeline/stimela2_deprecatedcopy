@@ -79,6 +79,8 @@ base_inputs:
     dtype: float
   save_source_list:
     dtype: bool
+  store_imaging_weights:
+    dtype: bool
   parallel_deconvolution:
     dtype: int
   parallel_gridding:
