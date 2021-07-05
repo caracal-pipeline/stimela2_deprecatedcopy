@@ -5,6 +5,8 @@ from enum import Enum
 from dataclasses import dataclass
 from omegaconf import MISSING, OmegaConf, DictConfig, ListConfig
 from collections import OrderedDict
+
+from scabha.exceptions import SubstitutionError
 from stimela.config import EmptyDictDefault, EmptyListDefault, StimelaLogConfig
 import stimela
 from stimela import logger, stimelogging
@@ -12,7 +14,8 @@ from stimela import logger, stimelogging
 from stimela.exceptions import *
 
 from scabha import validate
-from scabha.validate import SubstitutionNamespace, join_quote
+from scabha.validate import join_quote
+from scabha.substitutions import SubstitutionNS, substitutions_from, forgiving_substitutions_from
 
 from . import runners
 
@@ -31,6 +34,8 @@ class Step:
     skip: bool = False                              # if true, step is skipped
 
     name: Optional[str] = None
+
+    assign: Dict[str, Any] = EmptyDictDefault()     # assigns variables when step is executed
 
     _skip: Conditional = None                       # skip this step if conditional evaluates to true
     _break_on: Conditional = None                   # break out (of parent recipe) if conditional evaluates to true
@@ -88,7 +93,7 @@ class Step:
         if self.cargo is not None and self.prevalidated:
             self.cargo.update_parameter(name, value)
 
-    def finalize(self, config=None, log=None, hier_name=None, nesting=0):
+    def finalize(self, config=None, log=None, fqname=None, nesting=0):
         if not self.finalized:
             self.config = config or stimela.CONFIG
             self.log = self.log or log or stimela.logger()
@@ -106,7 +111,7 @@ class Step:
                     raise StepValidationError(f"unknown cab {self.cab}")
                 self.cargo = Cab(**config.cabs[self.cab])
             # note that cargo is passed log (which could be None), so it can sort out its own logger
-            self.cargo.finalize(config, log=self.log, hier_name=hier_name, nesting=nesting+1)
+            self.cargo.finalize(config, log=self.log, fqname=fqname, nesting=nesting+1)
             # cargo might change its logger, so back-propagate it here
             self.log = self.cargo.log
 
@@ -129,15 +134,16 @@ class Step:
             for line in self.summary(recursive=False):
                 self.log.log(level, line, extra=extra)
 
-    def run(self, subst=None):
+    def run(self, params=None, subst=None):
         """Runs the step"""
         self.prevalidate()
-        subst = subst or SubstitutionNamespace(config=self.config)
+        if params is None:
+            params = self.params
 
         self.log.debug(f"validating inputs")
         validated = None
         try:
-            params = self.cargo.validate_inputs(self.params, subst, loosely=self.skip)
+            params = self.cargo.validate_inputs(params, loosely=self.skip)
             validated = True
         except ScabhaBaseException as exc:
             level = logging.WARNING if self.skip else logging.ERROR
@@ -166,9 +172,9 @@ class Step:
             self.log.info(f"running step '{self.name}'")
             try:
                 if type(self.cargo) is Recipe:
-                    self.cargo._run(subst)
+                    self.cargo._run()
                 elif type(self.cargo) is Cab:
-                    runners.run_cab(self.cargo, log=self.log)
+                    runners.run_cab(self.cargo, log=self.log, subst=subst)
                 else:
                     raise RuntimeError("Unknown cargo type")
             except ScabhaBaseException as exc:
@@ -181,7 +187,7 @@ class Step:
         validated = False
         # insert output values into params for re-substitution and re-validation
         try:
-            params = self.cargo.validate_outputs(params, subst, loosely=self.skip)
+            params = self.cargo.validate_outputs(params, loosely=self.skip)
             validated = True
         except ScabhaBaseException as exc:
             level = logging.WARNING if self.skip else logging.ERROR
@@ -234,9 +240,7 @@ class Recipe(Cargo):
     """
     steps: Dict[str, Step] = EmptyDictDefault()     # sequence of named steps
 
-    dirs: Dict[str, Any] = EmptyDictDefault()       # I/O directory mappings
-
-    vars: Dict[str, Any] = EmptyDictDefault()       # arbitrary collection of variables pertaining to this step (for use in substitutions)
+    assign: Dict[str, Any] = EmptyDictDefault()     # assigns variables
 
     aliases: Dict[str, Any] = EmptyDictDefault()
 
@@ -257,7 +261,7 @@ class Recipe(Cargo):
     def __post_init__ (self):
         Cargo.__post_init__(self)
         # check that schemas are valid
-        for io in self.inputs, self.inputs_outputs:
+        for io in self.inputs, self.outputs:
             for name, schema in io.items():
                 if not schema:
                     raise RecipeValidationError(f"'{name}' does not define a valid schema")
@@ -278,11 +282,21 @@ class Recipe(Cargo):
             for label, stepconfig in self.steps.items():
                 steps[label] = Step(**stepconfig)
             self.steps = steps
+        # check that assignments don't clash with i/o parameters
+        for assign, assign_label in [(self.assign, "assign")] + [(step.assign, f"{label}.assign") for label, step in self.steps.items()]:
+            for key in assign:
+                for io, io_label in [(self.inputs, "inputs"), (self.outputs, "outputs")]:
+                    if key in io:
+                        raise RecipeValidationError(f"'{assign_label}.{key}' clashes with recipe {io_label}")
+        # check that for-loop variable does not clash
+        if self.for_loop:
+            for io, io_label in [(self.inputs, "inputs"), (self.outputs, "outputs")]:
+                if self.for_loop.var in io:
+                    raise RecipeValidationError(f"'for_loop.var={self.for_loop.var}' clashes with recipe {io_label}")
         # map of aliases
         self._alias_map = None
         self.log = logger()
 
- 
     @property
     def finalized(self):
         return self._alias_map is not None
@@ -341,40 +355,6 @@ class Recipe(Cargo):
         return self.add_step(Step(cab=cabname, params=params, info=info), label=label)
 
 
-    def _update_log_basename(self, name: str = None, params: Optional[Dict[str, Any]] = None):
-        # if we're a subrecipe, then name is something like "recipe.A1.stepname"
-        if name is not None:
-            self._hier_name = name
-        else:
-            name = self._hier_name
-
-        if stimelogging.has_file_logger(self.log):
-            # substitute name and parameters into base logname 
-            # so for self.logname="{name}.B{b}", logname becomes "recipeA1.stepname.B1"
-            template = (params and self.logname) or self.init_logname or self.config.opts.log.name
-            try:
-                logname = stimelogging.make_filename_substitutions(template, dict(name=name, params=params))
-            except Exception as exc:
-                self.log.error(f"bad substitution in logname '{template}': {exc}")
-                return
-
-            self.log.info(f"log filename will be {logname} (template was {template}, name was {name})")
-
-            # update our file handler accordingly
-            stimelogging.update_file_logger(self.log, logname, dict(name=self._hier_name))
-            
-            # do the same for substeps 
-            for label, step in self.steps.items():
-                if stimelogging.has_file_logger(step.log):
-                    step_logname = f"{name}.{label}"
-                    # for nested recipes, recursively invoke with name="recipeA1.stepname.B1.stepname", but no parameters
-                    if type(step.cargo) is Recipe:
-                        step.cargo._update_log_basename(name=step_logname)
-                    # for other types of steps, simly update the logfile using that as the name
-                    else:
-                        stimelogging.update_file_logger(step.log, template, dict(name=step_logname, params=params))
-
-
     def _add_alias(self, alias_name: str, alias_target: Union[str, Tuple]):
         if type(alias_target) is str:
             step_label, step_param_name = alias_target.split('.', 1)
@@ -416,39 +396,44 @@ class Recipe(Cargo):
         self._alias_list.setdefault(alias_name, []).append((step, step_param_name))
 
 
-    def finalize(self, config=None, log=None, hier_name=None, nesting=0):
+    def finalize(self, config=None, log=None, fqname=None, nesting=0):
         if not self.finalized:
             config = config or stimela.CONFIG
             log = log or stimela.logger()
             self._nesting = nesting
 
-            # hierarchical name, i.e. recipe_name.step_name.step_name etc.
-            self._hier_name = hier_name = hier_name or self.name
+            # fully qualified name, i.e. recipe_name.step_name.step_name etc.
+            self.fqname = fqname = fqname or self.name
+
+            # logger options come from config + our assign.log section
+            logopts = config.opts.log.copy()
+            if 'log' in self.assign:
+                logopts.update(**self.assign.log)
+            logsubst = SubstitutionNS(config=config, info=dict(fqname=fqname))
 
             # a top-level recipe (nesting <= 1) will have its own logger object, which we make here. 
             # (For nesting levels lower down, we trust the parent to make us a logger)
             if nesting <= 1:
-                log = log.getChild(hier_name)
+                log = log.getChild(fqname)
                 log.propagate = True
-                if config.opts.log.enable and config.opts.log.nest >= 1:
-                    stimelogging.update_file_logger(log, self.init_logname or config.opts.log.name, dict(name=hier_name))
+                stimelogging.update_file_logger(log, logopts, nesting=nesting, subst=logsubst)
 
-            log.debug(f"nesting level is {nesting}, max configured is {config.opts.log.nest}")
+            log.debug(f"nesting level is {nesting}, max configured is {logopts.nest}")
 
             # now make loggers for our children
             for label, step in self.steps.items():
                 # make nested logger for each child step
                 step.log = log.getChild(label)
                 step.log.propagate = True
-                if config.opts.log.enable and config.opts.log.nest > nesting:
-                    stimelogging.update_file_logger(step.log, self.init_logname or config.opts.log.name, dict(name=f"{hier_name}.{label}"))
+                logsubst.info.fqname = f"{fqname}.{label}"
+                stimelogging.update_file_logger(step.log, logopts, nesting=nesting+1, subst=logsubst)
 
-            Cargo.finalize(self, config, log=log, hier_name=hier_name)
+            Cargo.finalize(self, config, log=log, fqname=fqname)
 
             # finalize step cargos
             for label, step in self.steps.items():
                 step.name = label
-                step.finalize(config, hier_name=f"{hier_name}.{label}", nesting=nesting)
+                step.finalize(config, fqname=f"{fqname}.{label}", nesting=nesting)
 
             # collect aliases
             self._alias_map = OrderedDict()
@@ -483,29 +468,28 @@ class Recipe(Cargo):
 
             # check that for-loop is valid, if defined
             if self.for_loop is not None:
+                # if for_loop.over is a str, treat it as a required input
                 if type(self.for_loop.over) is str:
                     if self.for_loop.over not in self.inputs:
                         raise RecipeValidationError(f"for_loop: over: '{self.for_loop.over}' is not a defined input", log=log)
                     # this becomes a required input
                     self.inputs[self.for_loop.over].required = True
+                # else treat it as a list of values to be iterated over (and set over=None to indicate this)
                 elif type(self.for_loop.over) in (list, tuple, ListConfig):
                     self._for_loop_values = list(self.for_loop.over)
                     self.for_loop.over = None
                 else:
                     raise RecipeValidationError(f"for_loop: over is of invalid type {type(self.for_loop.over)}", log=log)
 
-                # mark loop variable as unresolved
-                self.update_parameter(self.for_loop.var, validate.Unresolved(self.for_loop.var))
+                # insert empty loop variable
+                if self.for_loop.var not in self.assign:
+                    self.assign[self.for_loop.var] = ""
 
 
     def prevalidate(self, params: Optional[Dict[str, Any]]):
         self.finalize()
         self.log.debug("prevalidating recipe")
         errors = []
-
-        # check params
-        if self.for_loop and self.for_loop.var in self.params and type(self.params[self.for_loop.var]) is not validate.Unresolved:
-            errors.append(RecipeValidationError(f"value of for_loop variable '{self.for_loop.var}' cannot be set explicitly", log=self.log))
 
         # validate our own parameters without substitutions
         try:
@@ -517,11 +501,8 @@ class Recipe(Cargo):
         # propagate aliases up to substeps
         for name, value in self.params.items():
             self._propagate_parameter(name, value)
-        # mark loop variable as an unresolved substitution for now
-        if self.for_loop is not None:
-            self.update_parameter(self.for_loop.var, validate.Unresolved(self.for_loop.var))
 
-        # check for missing ones
+        # check for missing parameters
         if self.missing_params:
             msg = f"""recipe '{self.name}' is missing the following required parameters: {join_quote(self.missing_params)}"""
             errors.append(RecipeValidationError(msg, log=self.log))
@@ -539,19 +520,21 @@ class Recipe(Cargo):
 
         self.log.debug("recipe pre-validated")
 
-    def validate_inputs(self, params: Dict[str, Any], subst: Optional[Dict[str, Any]], loosely=False):
-        # in case of for loops, add loop variable to the parameters so that it validates
+    def validate_inputs(self, params: Dict[str, Any], loosely=False):
+        params = Cargo.validate_inputs(self, params, loosely=loosely)
+        
+        # in case of for loops, get list of values to be iterated over 
         if self.for_loop is not None:
+            # if over !-= None (see prevalidate() above), list of values needs to be looked up in inputs
             if self.for_loop.over is not None:
                 self._for_loop_values = self.params[self.for_loop.over]
                 if not isinstance(self._for_loop_values, (list, tuple)):
                     self._for_loop_values = [self._for_loop_values]
             self.log.info(f"recipe is a for-loop with '{self.for_loop.var}' iterating over {len(self._for_loop_values)} values")
-            params = params.copy()
-            params[self.for_loop.var] = self._for_loop_values[0] if self._for_loop_values else validate.Unresolved(self.for_loop.var)
+        # else fake a single-value list
         else:
             self._for_loop_values = [None]
-        return Cargo.validate_inputs(self, params, subst, loosely=loosely)
+        return params
 
 
     def _propagate_parameter(self, name, value):
@@ -591,14 +574,11 @@ class Recipe(Cargo):
                 lines += [f"    {x}" for x in stepsum[1:]]
         return lines
 
-
-    def _run(self, subst: Optional[Dict[str, Any]]=None) -> Dict[str, Any]:
+    def _run(self) -> Dict[str, Any]:
         """Internal recipe run method. Meant to be called from a wrapper Step object (which validates the parameters, etc.)
 
         Parameters
         ----------
-        subst : SubstitutionDict, optional
-            OmegaConf dictionary of substitutions applied to parameters
 
         Returns
         -------
@@ -609,10 +589,25 @@ class Recipe(Cargo):
         ------
         RecipeValidationError
         """
-        self.log.info(f"running recipe '{self.name}'")
+        # set up substitution namespace
+        subst = SubstitutionNS()
+        info = SubstitutionNS(fqname=self.fqname)
+        # mutable=False means these sub-namespaces are not subject to {}-substitutions
+        subst._add_('info', info, nosubst=True)
+        subst._add_('config', self.config, nosubst=True) 
+        subst._add_('steps', {}, nosubst=True)
+        subst._add_('previous', {}, nosubst=True)
+        # this is subject to {}-substitutions
+        subst._add_('recipe', self.make_substitition_namespace(ns=self.assign))
 
-        if subst is None:
-            subst = OmegaConf.create()
+        logopts = self.config.opts.log.copy()
+        if 'log' in self.assign:
+            logopts.update(**self.assign.log)
+        
+        # update logfile name (since this may depend on substitutions)
+        stimelogging.update_file_logger(self.log, logopts, nesting=self._nesting, subst=subst)
+
+        self.log.info(f"running recipe '{self.name}'")
 
         # our inputs have been validated, so propagate aliases to steps. Check for missing stuff just in case
         for name, schema in self.inputs.items():
@@ -627,35 +622,59 @@ class Recipe(Cargo):
                 if schema.required: 
                     raise RecipeValidationError(f"recipe '{self.name}' is missing required input '{name}'", log=self.log)
 
-        # set up substitutions and run the steps
-        subst1 = SubstitutionNamespace(**subst) if subst else SubstitutionNamespace(config=self.config)
-        subst1.recipe = self.make_substitition_namespace()
-        subst1.steps  = {}
-        subst1.previous = None
-        subst1.vars = self.vars
-        subst1.dirs = self.dirs
-
         # iterate over for-loop values (if not looping, this is set up to [None] in advance)
         for count, iter_var in enumerate(self._for_loop_values):
+
+            # if for-loop, assign new value
             if self.for_loop:
                 self.log.info(f"for loop iteration {count}: {self.for_loop.var} = {iter_var}")
-                self.update_parameter(self.for_loop.var, iter_var)
-                subst1.recipe[self.for_loop.var] = iter_var
-
-            # update logfiles, since they might change depending on parameter substitutions
-            self._update_log_basename(params=subst1.recipe)
+                subst.recipe[self.for_loop.var] = self.assign[self.for_loop.var] = iter_var
+                # update logfile name (since this may depend on substitutions)
+                stimelogging.update_file_logger(self.log, logopts, nesting=self._nesting, subst=subst)
 
             for label, step in self.steps.items():
+                # merge in variable assignments and add step params as "current" namespace
+                subst.recipe._merge_(step.assign)
+                # update info
+                parts = label.split("-")
+                info.fqname = f"{self.fqname}.{label}"
+                info.label = label 
+                info.label_parts = parts
+                info.suffix = parts[-1] if len(parts) > 1 else ''
+                # current parameters added as mutable
+                subst.current = step.params
+                subst.steps[label] = subst.current
+
+                # perform substitutions on parameters
+                with substitutions_from(subst) as context:
+                    params = {key: context.evaluate(value, location=[label, "params", key]) for key, value in step.params.items()}
+                    if context.errors:
+                        self.log.error(f"unresolved {{}}-substitution(s):")
+                        for err in context.errors:
+                            self.log.error(f"  {err}")
+                        raise SubstitutionError(f"{len(context.errors)} unresolved substitution(s)")
+
+                # update log options again (based on assign.log which may have changed)
+                if 'log' in step.assign:
+                    logopts.update(**step.assign.log)
+
+                # update logfile name regardless (since this may depend on substitutions)
+                stimelogging.update_file_logger(step.log, logopts, nesting=self._nesting+1, subst=subst)
+    
+                # copy substituted parameters to current and steps[label] 
+                subst.current = params
+                subst.steps[label] = subst.current
+
                 try:
-                    step_outputs = step.run(subst1)
+                    step_outputs = step.run(subst=subst)
                 except ScabhaBaseException as exc:
                     if not exc.logged:
                         self.log.error(f"error running step '{label}': {exc}")
                         exc.logged = True
                     raise
-                # put all step parameters into the substitution dict, as they're all validated now
-                subst1.previous = OmegaConf.create(step.cargo.params)
-                subst1.steps[label] = subst1.previous
+                # put step parameters into previous and steps[label] again, as they may have changed based on outputs)
+                subst.previous = step.cargo.params
+                subst.steps[label] = subst.previous
 
                 # check aliases, our outputs need to be retrieved from the step
                 for name, schema in self.outputs.items():
@@ -664,10 +683,6 @@ class Recipe(Cargo):
                             self.params[name] = step_outputs[step_param_name]
                             # clear implicit setting
                             self.outputs[name].implicit = None
-
-        # delete loop variable from parameters (in case we are run again)
-        if self.for_loop and self.for_loop.var in self.params:
-            del self.params[self.for_loop.var]
 
         self.log.info(f"recipe '{self.name}' executed successfully")
         return {name: value for name, value in self.params.items() if name in self.outputs}

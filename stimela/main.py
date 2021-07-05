@@ -51,7 +51,10 @@ def cli(backend, config_files=[], verbose=False):
         if verbose:
             stimela.CONFIG.opts.log.level = "DEBUG"
         # setup file logging
-        stimelogging.update_file_logger(log, stimela.CONFIG.opts.log.name, subst=dict(name="stimela"))
+        subst = OmegaConf.create(dict(
+                    info=OmegaConf.create(dict(fqname='stimela')), 
+                    config=stimela.CONFIG))
+        stimelogging.update_file_logger(log, stimela.CONFIG.opts.log, nesting=-1, subst=subst)
 
     # set backend module
     global BACKEND 

@@ -1,7 +1,8 @@
 import sys, os.path, re
 import logging
 from typing import Optional, Dict, Any, Union
-from scabha.validate import SubstitutionNamespace
+from omegaconf import DictConfig
+from scabha.substitutions import SubstitutionNS, forgiving_substitutions_from
 
 class MultiplexingHandler(logging.Handler):
     """handler to send INFO and below to stdout, everything above to stderr"""
@@ -145,7 +146,27 @@ def has_file_logger(log: logging.Logger):
     return log.name in _logger_file_handlers
 
 
-def setup_file_logger(log: logging.Logger, logfile: str, level: Optional[Union[int, str]] = logging.INFO):
+def disable_file_logger(log: logging.Logger):
+    current_logfile, fh = _logger_file_handlers.get(log.name, (None, None))
+    if fh is not None:
+        fh.close()
+        log.removeHandler(fh)
+        del _logger_file_handlers[log.name]
+
+
+def setup_file_logger(log: logging.Logger, logfile: str, level: Optional[Union[int, str]] = logging.INFO, symlink: Optional[str] = None):
+    """Sets up logging to file
+
+    Args:
+        log (logging.Logger): Logger object
+        logfile (str): logfile. May contain dirname, which will be created as needed.
+        level (Optional[Union[int, str]], optional): Logging level, defaults to logging.INFO.
+        symlink (Optional[str], optional): if set, and logfile contains a dirname that is created, sets named symlink to point to it
+            (This is useful for patterns such as logfile="logs-YYMMDD/logfile.txt", then logs -> logs-YYMMDD)
+
+    Returns:
+        [logging.Logger]: logger object
+    """
     current_logfile, fh = _logger_file_handlers.get(log.name, (None, None))
     
     # does the logger need a new FileHandler created
@@ -161,6 +182,14 @@ def setup_file_logger(log: logging.Logger, logfile: str, level: Optional[Union[i
         logdir = os.path.dirname(logfile)
         if logdir and not os.path.exists(logdir):            
             os.makedirs(logdir)
+            if symlink:
+                symlink_path = os.path.join(os.path.dirname(logdir.rstrip("/")) or ".", symlink)
+                # remove existing symlink
+                if os.path.islink(symlink_path):
+                    os.unlink(symlink_path)
+                # Make symlink to logdir. If name exists and is not a symlink, we'll do nothing
+                if not os.path.exists(symlink_path):
+                    os.symlink(logdir, symlink_path)
         
         fh = logging.FileHandler(logfile, 'w', delay=True)
         fh.setFormatter(log_boring_formatter)
@@ -186,41 +215,39 @@ def setup_file_logger(log: logging.Logger, logfile: str, level: Optional[Union[i
     return log
 
 
-def make_filename_substitutions(template: str, subst: Dict[str, Any], default_subst: Optional[Dict[str, Any]]=None):
-    # make substitution dict    
-    import stimela.config
-    default_subst = default_subst or stimela.config.SUBSTITUTIONS
-    if subst:
-        default_subst = SubstitutionNamespace(**default_subst)
-        default_subst._update_(**subst)
+def update_file_logger(log: logging.Logger, logopts: Union["StimelaLogConfig", DictConfig], nesting: int = 0, subst: Optional[SubstitutionNS] = None):
+    """Updates logfiles associated with given logger based on option settings
 
-    return re.sub(r'[^a-zA-Z0-9_./-]', '_', template.format(**default_subst))
+    Args:
+        log (logging.Logger):                          Logger object
+        nesting (int):                                 nesting level of this logger
+        logopts (Union[StimelaLogConfig, DictConfig]): config settings
+        subst (Dict[str, Any]):                        dictionary of substitutions for pathnames in logopts
 
+    Returns:
+        [type]: [description]
+    """
+    if logopts.enable and logopts.nest > nesting:
 
-def get_logfile_path(template: str, subst: Dict[str, Any]):
-    import stimela
-    log = logger()
+        path = os.path.join(logopts.dir or ".", logopts.name)
+        
+        # {}-substitutions
 
-    dirname = os.path.dirname(template) or stimela.CONFIG.opts.log.dir or "."
-    basename = f"{stimela.CONFIG.opts.log.prefix}{os.path.basename(template)}{stimela.CONFIG.opts.log.suffix}"
-    path = os.path.join(dirname, basename)
-    
-    # substitute
-    try: 
-        path = make_filename_substitutions(path, subst)
-    except Exception as exc:
-        log.error(f"bad substitution in logfile path '{path}': {exc}")
-        return None
-    
-    return path
+        if subst is not None:
+            with forgiving_substitutions_from(subst, raise_errors=False) as context: 
+                path = context.evaluate(path, location=["log file"])
+                if context.errors:
+                    for err in context.errors:
+                        log.error(f"bad substitution in log file: {err}")
+                    return None
 
+        # substitute non-filename characters for _
+        path = re.sub(r'[^a-zA-Z0-9_./-]', '_', path)
 
-def update_file_logger(log: logging.Logger, template: str, subst: Dict[str, Any]):
-    import stimela
+        # setup the logger
+        setup_file_logger(log, path, level=logopts.level, symlink=logopts.symlink)
 
-    log_filename = get_logfile_path(template, subst)
-    if log_filename is not None:
-        setup_file_logger(log, log_filename, stimela.CONFIG.opts.log.level)
-
+    else:
+        disable_file_logger(log)
 
 

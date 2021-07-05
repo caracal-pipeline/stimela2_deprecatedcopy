@@ -9,7 +9,6 @@ from collections import OrderedDict
 
 from yaml.error import YAMLError
 import stimela
-from scabha.validate import SubstitutionNamespace
 from stimela import configuratt
 from stimela.exceptions import *
 
@@ -46,13 +45,12 @@ class StimelaImage:
 @dataclass 
 class StimelaLogConfig(object):
     enable: bool = True                          
+    name: str = "log-{info.fqname}.txt"          # Default name for log file. {fqname} and {config.x.y} is substituted.
+    
     dir: str = "."                               # Default directory for log files
 
-    name: Optional[str] = "{name}"               # Initial recipe logfile, before a recipe is running. {name} {date} {time} {datetime} is substituted.
-    
-    # prepended to and appended after logfile name
-    prefix: str = "log-"
-    suffix: str = ".txt"
+    symlink: Optional[str] = None                # Will make named symlink to the log directory. A useful pattern is e.g. dir="logs-{config.run.datetime}", symlink="logs",
+                                                 # then each run has its own log dir, and "logs" always points to the latest one
 
     # how deep to nest individual log files. 0 means one log per recipe, 1 means one per step, 2 per each substep, etc. 
     nest: int = 999                             
@@ -139,6 +137,7 @@ def load_config(extra_configs=List[str]):
         cabs: Dict[str, Cab] = MISSING
         opts: StimelaOptions = StimelaOptions()
         vars: Dict[str, Any] = EmptyDictDefault()
+        run:  Dict[str, Any] = EmptyDictDefault()
 
     # start with empty structured config containing schema
     base_schema = OmegaConf.structured(StimelaImage) 
@@ -202,15 +201,13 @@ def load_config(extra_configs=List[str]):
 
     if not CONFIG_LOADED:
         log.info("no configuration files, so using defaults")
+
+    # add runtime info
+    _ds = time.strftime("%Y%m%d")
+    _ts = time.strftime("%H%M%S")
+    runtime = dict(date=_ds, time=_ts, datetime=f"{_ds}-{_ts}")
+
+    conf.run = OmegaConf.create(runtime)
     
-    return OmegaConf.create(conf)
-
-
-
-_ds = time.strftime("%Y%m%d")
-_ts = time.strftime("%H%M%S")
-
-# dictionary of standard substitutions
-
-SUBSTITUTIONS = SubstitutionNamespace(date=_ds, time=_ts, datetime=f"{_ds}-{_ts}")
+    return conf
 

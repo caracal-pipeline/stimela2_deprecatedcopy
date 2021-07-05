@@ -1,21 +1,22 @@
 import shlex
+from typing import Dict, Optional, Any
 from scabha.cargo import Cab
 from stimela import logger
 from stimela.utils.xrun_poll import xrun
 from stimela.exceptions import StimelaCabRuntimeError
 
 
-def run_cab(cab: Cab, log=None):
+def run_cab(cab: Cab, log=None, subst: Optional[Dict[str, Any]] = None):
     log = log or logger()
     if cab.image:
         raise RuntimeError("container runner not yet implemented")
     else:
-        return run_cab_natively(cab, log=log)
+        return run_cab_natively(cab, log=log, subst=subst)
 
 
 
-def run_cab_natively(cab: Cab, log):
-    args, venv = cab.build_command_line()
+def run_cab_natively(cab: Cab, log, subst: Optional[Dict[str, Any]] = None):
+    args, venv = cab.build_command_line(subst)
 
     command_name = args[0]
 
