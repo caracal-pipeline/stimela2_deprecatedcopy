@@ -19,6 +19,9 @@ base_inputs:
     info: Channels out
     dtype: int
     nom_de_guerre: channels-out
+  deconvolution_channels:
+    info: Channels to use in deconvolution
+    dtype: int
   intervals_out:
     dtype: int
   threads:
@@ -100,13 +103,20 @@ base_inputs:
     dtype: Directory
   log_time:
     dtype: bool
+  interval:
+    info: Time intervals to image
+    dtype: List[int]
+    required: false
+    policies:
+      repeat: list
 
 base_outputs:
   msout:
     info: Output MS
     dtype: MS
-    implicit: "{self.ms}"
+    implicit: "{current.ms}"
   source_list:
     info: Source list
     dtype: File
-    implicit: "{self.prefix}-sources.txt"
+    implicit: "{current.prefix}-sources.txt"
+    must_exist: false

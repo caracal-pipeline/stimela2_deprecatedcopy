@@ -21,31 +21,31 @@ outputs:
   dirty:
     info: Dirty images
     dtype: List[File]
-    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-dirty.fits"
+    implicit: "{current.prefix}-[0-9][0-9][0-9][0-9]-dirty.fits"
   restored: 
     info: Restored images
     dtype: List[File]
-    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-image.fits"
+    implicit: "{current.prefix}-[0-9][0-9][0-9][0-9]-image.fits"
   residual:
     dtype: List[File]
-    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-residual.fits"
+    implicit: "{current.prefix}-[0-9][0-9][0-9][0-9]-residual.fits"
   model:
     info: Model images
     dtype: List[File]
-    implicit: "{self.prefix}-[0-9][0-9][0-9][0-9]-model.fits"
+    implicit: "{current.prefix}-[0-9][0-9][0-9][0-9]-model.fits"
   restored_mfs:
     info: Restored MFS image
     dtype: File
-    implicit: "{self.prefix}-MFS-image.fits"
+    implicit: "{current.prefix}-MFS-image.fits"
   residual_mfs:
     info: Residual MFS image
     dtype: File
-    implicit: "{self.prefix}-MFS-residual.fits"
+    implicit: "{current.prefix}-MFS-residual.fits"
   model_mfs:
     info: Model MFS image
     dtype: File
-    implicit: "{self.prefix}-MFS-model.fits"
+    implicit: "{current.prefix}-MFS-model.fits"
   dirty_mfs:
     info: Dirty MFS image
     dtype: File
-    implicit: "{self.prefix}-MFS-dirty.fits"
+    implicit: "{current.prefix}-MFS-dirty.fits"

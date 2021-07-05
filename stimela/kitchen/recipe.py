@@ -140,6 +140,18 @@ class Step:
         if params is None:
             params = self.params
 
+        # perform substitutions on parameters
+        if subst is not None:
+            with substitutions_from(subst, raise_errors=False) as context:
+                params = {key: context.evaluate(value, location=[self.name, "params", key]) for key, value in params.items()}
+                if context.errors:
+                    self.log.error(f"unresolved {{}}-substitution(s):")
+                    for err in context.errors:
+                        self.log.error(f"  {err}")
+                    raise SubstitutionError(f"{len(context.errors)} unresolved substitution(s)")
+
+            subst.current = params
+
         self.log.debug(f"validating inputs")
         validated = None
         try:
@@ -641,18 +653,8 @@ class Recipe(Cargo):
                 info.label = label 
                 info.label_parts = parts
                 info.suffix = parts[-1] if len(parts) > 1 else ''
-                # current parameters added as mutable
                 subst.current = step.params
                 subst.steps[label] = subst.current
-
-                # perform substitutions on parameters
-                with substitutions_from(subst, raise_errors=False) as context:
-                    params = {key: context.evaluate(value, location=[label, "params", key]) for key, value in step.params.items()}
-                    if context.errors:
-                        self.log.error(f"unresolved {{}}-substitution(s):")
-                        for err in context.errors:
-                            self.log.error(f"  {err}")
-                        raise SubstitutionError(f"{len(context.errors)} unresolved substitution(s)")
 
                 # update log options again (based on assign.log which may have changed)
                 if 'log' in step.assign:
@@ -661,9 +663,6 @@ class Recipe(Cargo):
                 # update logfile name regardless (since this may depend on substitutions)
                 stimelogging.update_file_logger(step.log, logopts, nesting=self._nesting+1, subst=subst)
     
-                # copy substituted parameters to current and steps[label] 
-                subst.current = params
-                subst.steps[label] = subst.current
 
                 try:
                     step_outputs = step.run(subst=subst)
@@ -673,7 +672,7 @@ class Recipe(Cargo):
                         exc.logged = True
                     raise
                 # put step parameters into previous and steps[label] again, as they may have changed based on outputs)
-                subst.previous = step.cargo.params
+                subst.previous = subst.current
                 subst.steps[label] = subst.previous
 
                 # check aliases, our outputs need to be retrieved from the step

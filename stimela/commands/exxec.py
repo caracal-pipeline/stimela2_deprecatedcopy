@@ -146,6 +146,7 @@ def exxec(what: str, parameters: List[str] = [],
         if step_names:
             restrict = []
             all_step_names = list(recipe.steps.keys())
+            log.info(all_step_names)
             for name in step_names:
                 if ':' in name:
                     begin, end = name.split(':', 1)
@@ -161,7 +162,7 @@ def exxec(what: str, parameters: List[str] = [],
                         try:
                             last = all_step_names.index(end)
                         except ValueError as exc:
-                            log.error(f"No such recipe step: '{begin}")
+                            log.error(f"No such recipe step: '{end}")
                             return 2
                     else:
                         last = len(recipe.steps)-1
@@ -185,7 +186,7 @@ def exxec(what: str, parameters: List[str] = [],
                 log.warning("note that some steps remain explicitly skipped, you can enable them with -s")
 
         # wrap it in an outer step
-        step = Step(recipe=recipe, info=what, params=params)
+        step = Step(recipe=recipe, name=f"recipe: {recipe.name}", info=what, params=params)
 
     # prevalidate() is done by run() automatically if not already done, so we only need this in debug mode, so that we
     # can pretty-print the recipe
