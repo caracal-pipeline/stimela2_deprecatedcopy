@@ -646,7 +646,7 @@ class Recipe(Cargo):
                 subst.steps[label] = subst.current
 
                 # perform substitutions on parameters
-                with substitutions_from(subst) as context:
+                with substitutions_from(subst, raise_errors=False) as context:
                     params = {key: context.evaluate(value, location=[label, "params", key]) for key, value in step.params.items()}
                     if context.errors:
                         self.log.error(f"unresolved {{}}-substitution(s):")
