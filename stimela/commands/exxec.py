@@ -186,7 +186,8 @@ def exxec(what: str, parameters: List[str] = [],
                 log.warning("note that some steps remain explicitly skipped, you can enable them with -s")
 
         # wrap it in an outer step
-        step = Step(recipe=recipe, name=f"recipe: {recipe.name}", info=what, params=params)
+        recipe.fqname = recipe_name
+        step = Step(recipe=recipe, name=f"{recipe_name}", info=what, params=params)
 
     # prevalidate() is done by run() automatically if not already done, so we only need this in debug mode, so that we
     # can pretty-print the recipe

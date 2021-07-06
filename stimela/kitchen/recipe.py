@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from omegaconf import MISSING, OmegaConf, DictConfig, ListConfig
 from collections import OrderedDict
 
-from scabha.exceptions import SubstitutionError
+from scabha.exceptions import SubstitutionError, SubstitutionErrorList
 from stimela.config import EmptyDictDefault, EmptyListDefault, StimelaLogConfig
 import stimela
 from stimela import logger, stimelogging
@@ -15,7 +15,7 @@ from stimela.exceptions import *
 
 from scabha import validate
 from scabha.validate import join_quote
-from scabha.substitutions import SubstitutionNS, substitutions_from, forgiving_substitutions_from
+from scabha.substitutions import SubstitutionNS, substitutions_from 
 
 from . import runners
 
@@ -33,7 +33,8 @@ class Step:
     info: Optional[str] = None                      # comment or info
     skip: bool = False                              # if true, step is skipped
 
-    name: Optional[str] = None
+    name: str = ''                                  # step's internal name
+    fqname: str = ''                                # fully-qualified name e.g. recipe_name.step_label
 
     assign: Dict[str, Any] = EmptyDictDefault()     # assigns variables when step is executed
 
@@ -41,6 +42,7 @@ class Step:
     _break_on: Conditional = None                   # break out (of parent recipe) if conditional evaluates to true
 
     def __post_init__(self):
+        self.fqname = self.fqname or self.name
         if bool(self.cab) == bool(self.recipe):
             raise StepValidationError("step must specify either a cab or a nested recipe, but not both")
         self.cargo = self.config = self.log = None
@@ -110,6 +112,8 @@ class Step:
                 if self.cab not in self.config.cabs:
                     raise StepValidationError(f"unknown cab {self.cab}")
                 self.cargo = Cab(**config.cabs[self.cab])
+            self.cargo.name = self.name
+            self.cargo.fqname = self.fqname
             # note that cargo is passed log (which could be None), so it can sort out its own logger
             self.cargo.finalize(config, log=self.log, fqname=fqname, nesting=nesting+1)
             # cargo might change its logger, so back-propagate it here
@@ -140,27 +144,21 @@ class Step:
         if params is None:
             params = self.params
 
-        # perform substitutions on parameters
-        if subst is not None:
-            with substitutions_from(subst, raise_errors=False) as context:
-                params = {key: context.evaluate(value, location=[self.name, "params", key]) for key, value in params.items()}
-                if context.errors:
-                    self.log.error(f"unresolved {{}}-substitution(s):")
-                    for err in context.errors:
-                        self.log.error(f"  {err}")
-                    raise SubstitutionError(f"{len(context.errors)} unresolved substitution(s)")
-
-            subst.current = params
-
         self.log.debug(f"validating inputs")
         validated = None
         try:
-            params = self.cargo.validate_inputs(params, loosely=self.skip)
+            params = self.cargo.validate_inputs(params, loosely=self.skip, subst=subst)
             validated = True
+
         except ScabhaBaseException as exc:
             level = logging.WARNING if self.skip else logging.ERROR
             if not exc.logged:
-                self.log.log(level, f"error validating inputs: {exc}")
+                if type(exc) is SubstitutionErrorList:
+                    self.log.log(level, f"unresolved {{}}-substitution(s):")
+                    for err in exc.errors:
+                        self.log.level(f"  {err}")
+                else:
+                    self.log.log(level, f"error validating inputs: {exc}")
                 exc.logged = True
             self.log_summary(level, "summary of inputs follows", color="WARNING")
             # raise up, unless step is being skipped
@@ -168,10 +166,12 @@ class Step:
                 self.log.warning("since the step is being skipped, this is not fatal")
             else:
                 raise
-        
+
         # log inputs
         if validated and not self.skip:
             self.log_summary(logging.INFO, "validated inputs", color="GREEN")
+            if subst is not None:
+                subst.current = params
 
         # bomb out if some inputs failed to validate or substitutions resolve
         if self.cargo.invalid_params or self.cargo.unresolved_params:
@@ -199,12 +199,17 @@ class Step:
         validated = False
         # insert output values into params for re-substitution and re-validation
         try:
-            params = self.cargo.validate_outputs(params, loosely=self.skip)
+            params = self.cargo.validate_outputs(params, loosely=self.skip, subst=subst)
             validated = True
         except ScabhaBaseException as exc:
             level = logging.WARNING if self.skip else logging.ERROR
             if not exc.logged:
-                self.log.log(level, f"error validating outputs: {exc}")
+                if type(exc) is SubstitutionErrorList:
+                    self.log.log(level, f"unresolved {{}}-substitution(s):")
+                    for err in exc.errors:
+                        self.log.level(f"  {err}")
+                else:
+                    self.log.log(level, f"error validating outputs: {exc}")
                 exc.logged = True
             # raise up, unless step is being skipped
             if self.skip:
@@ -214,6 +219,8 @@ class Step:
                 raise
 
         if validated:
+            if subst is not None:
+                subst.current = params
             self.log_summary(logging.DEBUG, "validated outputs")
 
         # again, bomb put if something was invalid
@@ -292,6 +299,8 @@ class Recipe(Cargo):
         if type(self.steps) is not OrderedDict:
             steps = OrderedDict()
             for label, stepconfig in self.steps.items():
+                stepconfig.name = label
+                stepconfig.fqname = f"{self.name}.{label}"
                 steps[label] = Step(**stepconfig)
             self.steps = steps
         # check that assignments don't clash with i/o parameters
@@ -350,8 +359,9 @@ class Recipe(Cargo):
             raise DefinitionError("can't add a step to a recipe that's been finalized")
 
         names = [s for s in self.steps if s.cab == step.cabname]
-
-        self.steps[label or f"{step.cabname}_{len(names)+1}"] = step
+        label = label or f"{step.cabname}_{len(names)+1}"
+        self.steps[label] = step
+        step.fqname = f"{self.name}.{label}"
 
 
     def add(self, cabname: str, label: str = None, 
@@ -415,7 +425,7 @@ class Recipe(Cargo):
             self._nesting = nesting
 
             # fully qualified name, i.e. recipe_name.step_name.step_name etc.
-            self.fqname = fqname = fqname or self.name
+            self.fqname = fqname = fqname or self.fqname
 
             # logger options come from config + our assign.log section
             logopts = config.opts.log.copy()
@@ -444,7 +454,6 @@ class Recipe(Cargo):
 
             # finalize step cargos
             for label, step in self.steps.items():
-                step.name = label
                 step.finalize(config, fqname=f"{fqname}.{label}", nesting=nesting)
 
             # collect aliases
@@ -532,7 +541,7 @@ class Recipe(Cargo):
 
         self.log.debug("recipe pre-validated")
 
-    def validate_inputs(self, params: Dict[str, Any], loosely=False):
+    def validate_inputs(self, params: Dict[str, Any], subst: Optional[SubstitutionNS]=None, loosely=False):
         params = Cargo.validate_inputs(self, params, loosely=loosely)
         
         # in case of for loops, get list of values to be iterated over 
