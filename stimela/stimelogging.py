@@ -171,7 +171,7 @@ def setup_file_logger(log: logging.Logger, logfile: str, level: Optional[Union[i
     
     # does the logger need a new FileHandler created
     if current_logfile != logfile:
-        log.debug(f"starting new logfile {logfile} (previous was {current_logfile})")
+        log.debug(f"will switch to logfile {logfile} (previous was {current_logfile})")
 
         # remove old FH if so
         if fh is not None:
@@ -189,7 +189,8 @@ def setup_file_logger(log: logging.Logger, logfile: str, level: Optional[Union[i
                     os.unlink(symlink_path)
                 # Make symlink to logdir. If name exists and is not a symlink, we'll do nothing
                 if not os.path.exists(symlink_path):
-                    os.symlink(logdir, symlink_path)
+                    os.symlink(os.path.basename(logdir), symlink_path)
+
         
         fh = logging.FileHandler(logfile, 'w', delay=True)
         fh.setFormatter(log_boring_formatter)

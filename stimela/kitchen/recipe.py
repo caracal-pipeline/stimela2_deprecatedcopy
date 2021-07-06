@@ -178,10 +178,7 @@ class Step:
             invalid = self.cargo.invalid_params + self.cargo.unresolved_params
             raise StepValidationError(f"invalid inputs: {join_quote(invalid)}", log=self.log)
 
-        if self.skip:
-            self.log.info(f"skipping step '{self.name}'")
-        else:
-            self.log.info(f"running step '{self.name}'")
+        if not self.skip:
             try:
                 if type(self.cargo) is Recipe:
                     self.cargo._run()
@@ -330,7 +327,7 @@ class Recipe(Cargo):
         if step.skip and enable:
             self.log.warning(f"enabling step '{label}' which was previously marked as skipped")
         elif not step.skip and not enable:
-            self.log.warning(f"skipping step '{label}'")
+            self.log.warning(f"will skip step '{label}'")
         step.skip = not enable
 
     def restrict_steps(self, steps: List[str], force_enable=True):
@@ -672,7 +669,7 @@ class Recipe(Cargo):
                 # update logfile name regardless (since this may depend on substitutions)
                 stimelogging.update_file_logger(step.log, logopts, nesting=self._nesting+1, subst=subst)
     
-
+                self.log.info(f"{'skipping' if step.skip else 'running'} step '{label}'")
                 try:
                     step_outputs = step.run(subst=subst)
                 except ScabhaBaseException as exc:
