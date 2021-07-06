@@ -156,7 +156,7 @@ class Step:
                 if type(exc) is SubstitutionErrorList:
                     self.log.log(level, f"unresolved {{}}-substitution(s):")
                     for err in exc.errors:
-                        self.log.level(f"  {err}")
+                        self.log.log(level, f"  {err}")
                 else:
                     self.log.log(level, f"error validating inputs: {exc}")
                 exc.logged = True
@@ -207,7 +207,7 @@ class Step:
                 if type(exc) is SubstitutionErrorList:
                     self.log.log(level, f"unresolved {{}}-substitution(s):")
                     for err in exc.errors:
-                        self.log.level(f"  {err}")
+                        self.log.log(level, f"  {err}")
                 else:
                     self.log.log(level, f"error validating outputs: {exc}")
                 exc.logged = True
