@@ -52,6 +52,9 @@ base_inputs:
   niter:
     info: Number of minor clean iterations
     dtype: int
+  nmiter:
+    info: Max number of major clean iterations
+    dtype: int
   fits_mask:
     dtype: File
   threshold:

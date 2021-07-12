@@ -119,11 +119,11 @@ class Step:
             # cargo might change its logger, so back-propagate it here
             self.log = self.cargo.log
 
-    def prevalidate(self):
+    def prevalidate(self, subst: Optional[SubstitutionNS]=None):
         if not self.prevalidated:
             self.finalize()
             # validate cab or recipe
-            self.cargo.prevalidate(self.params)
+            self.cargo.prevalidate(self.params, subst)
             self.log.debug(f"{self.cargo.name}: {len(self.missing_params)} missing, "
                             f"{len(self.invalid_params)} invalid and "
                             f"{len(self.unresolved_params)} unresolved parameters")
@@ -503,18 +503,41 @@ class Recipe(Cargo):
                 if self.for_loop.var not in self.assign:
                     self.assign[self.for_loop.var] = ""
 
+    def _prep_step(self, label, step, subst):
+        parts = label.split("-")
+        info = subst.info
+        info.fqname = f"{self.fqname}.{label}"
+        info.label = label 
+        info.label_parts = parts
+        info.suffix = parts[-1] if len(parts) > 1 else ''
+        subst.current = step.params
+        subst.steps[label] = subst.current
 
-    def prevalidate(self, params: Optional[Dict[str, Any]]):
+    def prevalidate(self, params: Optional[Dict[str, Any]], subst: Optional[SubstitutionNS]=None):
         self.finalize()
         self.log.debug("prevalidating recipe")
         errors = []
 
-        # validate our own parameters without substitutions
+        subst = SubstitutionNS()
+        info = SubstitutionNS(fqname=self.fqname)
+        # mutable=False means these sub-namespaces are not subject to {}-substitutions
+        subst._add_('info', info, nosubst=True)
+        subst._add_('config', self.config, nosubst=True) 
+        subst._add_('steps', {}, nosubst=True)
+        subst._add_('previous', {}, nosubst=True)
+        # this is subject to {}-substitutions
+        subst._add_('recipe', self.make_substitition_namespace(ns=self.assign))
+        subst.recipe._merge_(params)
+
+        # validate our own parameters
         try:
-            Cargo.prevalidate(self, params)
+            Cargo.prevalidate(self, params, subst=subst)
         except ScabhaBaseException as exc:
             msg = f"recipe pre-validation failed: {exc}"
             errors.append(RecipeValidationError(msg, log=self.log))
+
+        # merge again
+        subst.recipe._merge_(self.params)
 
         # propagate aliases up to substeps
         for name, value in self.params.items():
@@ -527,11 +550,21 @@ class Recipe(Cargo):
 
         # prevalidate step parameters 
         for label, step in self.steps.items():
+            self._prep_step(label, step, subst)
+
             try:
-                step.prevalidate()
+                step.prevalidate(subst)
             except ScabhaBaseException as exc:
+                if type(exc) is SubstitutionErrorList:
+                    self.log.error(f"unresolved {{}}-substitution(s):")
+                    for err in exc.errors:
+                        self.log.error(f"  {err}")
                 msg = f"step '{label}' failed pre-validation: {exc}"
                 errors.append(RecipeValidationError(msg, log=self.log))
+
+            subst.previous = subst.current
+            subst.steps[label] = subst.previous
+
 
         if errors:
             raise RecipeValidationError(f"{len(errors)} error(s) validating the recipe '{self.name}'", log=self.log)
@@ -654,13 +687,7 @@ class Recipe(Cargo):
                 # merge in variable assignments and add step params as "current" namespace
                 subst.recipe._merge_(step.assign)
                 # update info
-                parts = label.split("-")
-                info.fqname = f"{self.fqname}.{label}"
-                info.label = label 
-                info.label_parts = parts
-                info.suffix = parts[-1] if len(parts) > 1 else ''
-                subst.current = step.params
-                subst.steps[label] = subst.current
+                self._prep_step(label, step, subst)
 
                 # update log options again (based on assign.log which may have changed)
                 if 'log' in step.assign:

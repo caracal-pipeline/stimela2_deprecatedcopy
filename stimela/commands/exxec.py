@@ -146,7 +146,6 @@ def exxec(what: str, parameters: List[str] = [],
         if step_names:
             restrict = []
             all_step_names = list(recipe.steps.keys())
-            log.info(all_step_names)
             for name in step_names:
                 if ':' in name:
                     begin, end = name.split(':', 1)
@@ -189,35 +188,34 @@ def exxec(what: str, parameters: List[str] = [],
         recipe.fqname = recipe_name
         step = Step(recipe=recipe, name=f"{recipe_name}", info=what, params=params)
 
-    # prevalidate() is done by run() automatically if not already done, so we only need this in debug mode, so that we
-    # can pretty-print the recipe
+    # prevalidate() is done by run() automatically if not already done, but it does set up the receipe's logger, so do it anyway
+    try:
+        step.prevalidate()
+    except ScabhaBaseException as exc:
+        if not exc.logged:
+            log.error(f"pre-validation failed: {exc}")
+        return 1
+    
+    # in debug mode, pretty-print the recipe
     if log.isEnabledFor(logging.DEBUG):
-        try:
-            step.prevalidate()
-        except ScabhaBaseException as exc:
-            if not exc.logged:
-                log.error(f"pre-validation failed: {exc}")
-            return 1
-
         log.debug("---------- prevalidated step follows ----------")
         for line in step.summary():
             log.debug(line)
 
     # run step
-
     try:
         outputs = step.run()
     except ScabhaBaseException as exc:
         if not exc.logged:
-            log.error(f"run failed with exception: {exc}")
+            step.log.error(f"run failed with exception: {exc}")
         return 1
 
-    if outputs:
-        log.info("run successful, outputs follow:")
+    if outputs and step.log.isEnabledFor(logging.DEBUG):
+        step.log.debug("run successful, outputs follow:")
         for name, value in outputs.items():
-            log.info(f"  {name}: {value}")
+            step.log.debug(f"  {name}: {value}")
     else:
-        log.info("run successful")
+        step.log.info("run successful")
 
 
     return 0
