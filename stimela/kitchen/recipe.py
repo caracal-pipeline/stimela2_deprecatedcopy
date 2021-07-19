@@ -97,6 +97,8 @@ class Step:
 
     def finalize(self, config=None, log=None, fqname=None, nesting=0):
         if not self.finalized:
+            if fqname is not None:
+                self.fqname = fqname
             self.config = config or stimela.CONFIG
             self.log = self.log or log or stimela.logger()
 
@@ -422,7 +424,7 @@ class Recipe(Cargo):
             self._nesting = nesting
 
             # fully qualified name, i.e. recipe_name.step_name.step_name etc.
-            self.fqname = fqname = fqname or self.fqname
+            self.fqname = fqname = fqname or self.fqname or self.name
 
             # logger options come from config + our assign.log section
             logopts = config.opts.log.copy()

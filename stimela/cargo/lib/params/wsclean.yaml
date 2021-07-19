@@ -35,12 +35,19 @@ base_inputs:
       split: " "
       repeat: list
   size:
-    info: Image size in pixels
-    dtype: int
-    required: true
+    info: Image size in pixels (square image)
+    dtype: Union[int, Tuple[int, int]]
     policies:
       repeat: list
-      format_list: ["{size}", "{size}"]
+      format_list: ["{0}", "{1}"]
+      format_list_scalar: ["{0}", "{0}"]
+  # sizes:
+  #   info: Image sizes in pixels (width, height)
+  #   dtype: Tuple[int, int]
+  #   policies:
+  #     repeat: list
+  #     format_list: ["{sizes[0]}", "{sizes[1]}"]
+  #   nom_de_guerre: size
   multiscale:
     dtype: bool
   scale:

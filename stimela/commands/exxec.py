@@ -135,12 +135,18 @@ def exxec(what: str, parameters: List[str] = [],
         log.info(f"selected recipe is '{recipe_name}'")
 
         # create recipe object from the config
+        kwargs = dict(**stimela.CONFIG[recipe_name])
+        kwargs.setdefault('name', recipe_name)
         try:
-            recipe = Recipe(**stimela.CONFIG[recipe_name])
+            recipe = Recipe(**kwargs)
         except ScabhaBaseException as exc:
             if not exc.logged:
                 log.error(f"error loading recipe '{recipe_name}': {exc}")
             return 2
+
+        # force name, if not set
+        if not recipe.name:
+            recipe.name = recipe_name
 
         # select substeps if so specified
         if step_names:
