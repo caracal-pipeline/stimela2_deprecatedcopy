@@ -592,7 +592,16 @@ class Recipe(Cargo):
         else:
             self._for_loop_values = [None]
 
-        params = Cargo.validate_inputs(self, params, loosely=loosely)
+        # add 'recipe' substitutions
+        if subst is None:
+            subst = SubstitutionNS()
+            info = SubstitutionNS(fqname=self.fqname)
+            subst._add_('info', info, nosubst=True)
+            subst._add_('config', self.config, nosubst=True) 
+        subst._add_('recipe', self.make_substitition_namespace(ns=self.assign))
+        subst.recipe._merge_(params)
+
+        params = Cargo.validate_inputs(self, params, subst=subst, loosely=loosely)
         
         return params
 
