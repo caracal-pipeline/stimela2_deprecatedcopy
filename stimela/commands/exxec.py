@@ -8,13 +8,14 @@ from omegaconf.omegaconf import OmegaConf, OmegaConfBaseException
 from stimela.config import ConfigExceptionTypes
 import click
 import logging
-import os.path, yaml
+import os.path, yaml, sys
 from typing import List, Optional
 import stimela
 from stimela import logger
 from stimela.main import cli
 from stimela.kitchen.recipe import Recipe, Step, join_quote
 from stimela.config import get_config_class
+
 
 
 @cli.command("exec",
@@ -61,7 +62,7 @@ def exxec(what: str, parameters: List[str] = [],
                     errcode = 2
 
     if errcode:
-        return errcode
+        sys.exit(errcode)
 
     # load extra config settigs from dotkey arguments, to be merged in below
     # (when loading a recipe file, we want to merge these in AFTER the recipe is loaded, because the arguments
@@ -70,7 +71,7 @@ def exxec(what: str, parameters: List[str] = [],
         extra_config = OmegaConf.from_dotlist(dotlist) if dotlist else OmegaConf.create()
     except OmegaConfBaseException as exc:
         log.error(f"error loading command-line dotlist: {exc}")
-        return 2
+        sys.exit(2)
 
     if what in stimela.CONFIG.cabs:
         cabname = what
@@ -79,7 +80,7 @@ def exxec(what: str, parameters: List[str] = [],
             stimela.CONFIG = OmegaConf.merge(stimela.CONFIG, extra_config)
         except OmegaConfBaseException as exc:
             log.error(f"error applying command-line dotlist: {exc}")
-            return 2
+            sys.exit(2)
 
         log.info(f"setting up cab {cabname}")
 
@@ -89,7 +90,7 @@ def exxec(what: str, parameters: List[str] = [],
     else:
         if not os.path.isfile(what):
             log.error(f"'{what}' is neither a recipe file nor a known stimela cab")
-            return 2 
+            sys.exit(2)
 
         log.info(f"loading recipe/config {what}")
 
@@ -98,24 +99,24 @@ def exxec(what: str, parameters: List[str] = [],
             conf = configuratt.load_using(what, stimela.CONFIG)
         except ConfigExceptionTypes as exc:
             log.error(f"error loading {what}: {exc}")
-            return 2
+            sys.exit(2)
 
         # anything that is not a standard config section will be treated as a recipe
         all_recipe_names = [name for name in conf if name not in stimela.CONFIG]
         if not all_recipe_names:
             log.error(f"{what} does not contain any recipies")
-            return 2
+            sys.exit(2)
 
         log.info(f"{what} contains the following recipe sections: {join_quote(all_recipe_names)}")
 
         if recipe_name:
             if recipe_name not in conf:
                 log.error(f"{what} does not contain a '{recipe_name}' section")
-                return 2
+                sys.exit(2)
         else:
             if len(all_recipe_names) > 1: 
                 log.error(f"multiple recipes found, please specify one on the command line")
-                return 2
+                sys.exit(2)
             recipe_name = all_recipe_names[0]
         
         # merge into config, treating each section as a recipe
@@ -130,7 +131,7 @@ def exxec(what: str, parameters: List[str] = [],
             stimela.CONFIG = OmegaConf.merge(stimela.CONFIG, config_schema, conf, extra_config)
         except OmegaConfBaseException as exc:
             log.error(f"error loading {what}: {exc}")
-            return 2
+            sys.exit(2)
 
         log.info(f"selected recipe is '{recipe_name}'")
 
@@ -142,7 +143,7 @@ def exxec(what: str, parameters: List[str] = [],
         except ScabhaBaseException as exc:
             if not exc.logged:
                 log.error(f"error loading recipe '{recipe_name}': {exc}")
-            return 2
+            sys.exit(2)
 
         # force name, if not set
         if not recipe.name:
@@ -160,7 +161,7 @@ def exxec(what: str, parameters: List[str] = [],
                             first = all_step_names.index(begin)
                         except ValueError as exc:
                             log.error(f"No such recipe step: '{begin}")
-                            return 2
+                            sys.exit(2)
                     else:
                         first = 0
                     if end:
@@ -168,7 +169,7 @@ def exxec(what: str, parameters: List[str] = [],
                             last = all_step_names.index(end)
                         except ValueError as exc:
                             log.error(f"No such recipe step: '{end}")
-                            return 2
+                            sys.exit(2)
                     else:
                         last = len(recipe.steps)-1
                     restrict += all_step_names[first:last+1]
@@ -176,7 +177,7 @@ def exxec(what: str, parameters: List[str] = [],
                     for name1 in name.split(","):
                         if name1 not in all_step_names:
                             log.error(f"No such recipe step: '{name1}")
-                            return 2
+                            sys.exit(2)
                         recipe.enable_step(name1)  # config file may have skip=True, but we force-enable here
                         restrict.append(name1)
             recipe.restrict_steps(restrict, force_enable=False)
@@ -200,7 +201,7 @@ def exxec(what: str, parameters: List[str] = [],
     except ScabhaBaseException as exc:
         if not exc.logged:
             log.error(f"pre-validation failed: {exc}")
-        return 1
+        sys.exit(1)
     
     # in debug mode, pretty-print the recipe
     if log.isEnabledFor(logging.DEBUG):
@@ -214,7 +215,7 @@ def exxec(what: str, parameters: List[str] = [],
     except ScabhaBaseException as exc:
         if not exc.logged:
             step.log.error(f"run failed with exception: {exc}")
-        return 1
+        sys.exit(1)
 
     if outputs and step.log.isEnabledFor(logging.DEBUG):
         step.log.debug("run successful, outputs follow:")

@@ -14,7 +14,7 @@ from stimela import logger, stimelogging
 from stimela.exceptions import *
 
 from scabha import validate
-from scabha.validate import join_quote
+from scabha.validate import Unresolved, join_quote
 from scabha.substitutions import SubstitutionNS, substitutions_from 
 
 from . import runners
@@ -226,7 +226,7 @@ class Step:
         if self.cargo.invalid_params or self.cargo.unresolved_params:
             invalid = self.cargo.invalid_params + self.cargo.unresolved_params
             if self.skip:
-                self.log.warning(f"invalid inputs: {join_quote(invalid)}")
+                self.log.warning(f"invalid outputs: {join_quote(invalid)}")
                 self.log.warning("since the step was skipped, this is not fatal")
             else:
                 raise StepValidationError(f"invalid inputs: {join_quote(invalid)}", log=self.log)
@@ -408,7 +408,7 @@ class Recipe(Cargo):
                 existing_schema.dtype = schema.dtype
             # check if definition conflicts
             elif schema.dtype != existing_schema.dtype:
-                raise RecipeValidationError(f"alias '{alias_name}': dtype of '{step_label}.{step_param_name}' doesn't match previous dtype)", log=self.log)
+                raise RecipeValidationError(f"alias '{alias_name}': dtype {schema.dtype} of '{step_label}.{step_param_name}' doesn't match previous dtype {existing_schema.dtype}", log=self.log)
             # alias becomes required if any parm it refers to was required, unless recipe has a default
             if schema.required:
                 existing_schema.required = True
@@ -527,9 +527,12 @@ class Recipe(Cargo):
         subst._add_('config', self.config, nosubst=True) 
         subst._add_('steps', {}, nosubst=True)
         subst._add_('previous', {}, nosubst=True)
-        # this is subject to {}-substitutions
         subst._add_('recipe', self.make_substitition_namespace(ns=self.assign))
         subst.recipe._merge_(params)
+
+        # add for-loop variable to inputs, if expected there
+        if self.for_loop is not None and self.for_loop.var in self.inputs:
+            params[self.for_loop.var] = Unresolved("for-loop")
 
         # validate our own parameters
         try:
@@ -574,19 +577,23 @@ class Recipe(Cargo):
         self.log.debug("recipe pre-validated")
 
     def validate_inputs(self, params: Dict[str, Any], subst: Optional[SubstitutionNS]=None, loosely=False):
-        params = Cargo.validate_inputs(self, params, loosely=loosely)
-        
         # in case of for loops, get list of values to be iterated over 
         if self.for_loop is not None:
-            # if over !-= None (see prevalidate() above), list of values needs to be looked up in inputs
+            # if over != None (see finalize() above), list of values needs to be looked up in inputs
             if self.for_loop.over is not None:
                 self._for_loop_values = self.params[self.for_loop.over]
                 if not isinstance(self._for_loop_values, (list, tuple)):
                     self._for_loop_values = [self._for_loop_values]
             self.log.info(f"recipe is a for-loop with '{self.for_loop.var}' iterating over {len(self._for_loop_values)} values")
+            # add first value to inputs, if needed
+            if self.for_loop.var in self.inputs and self._for_loop_values:
+                params[self.for_loop.var] = self._for_loop_values[0]
         # else fake a single-value list
         else:
             self._for_loop_values = [None]
+
+        params = Cargo.validate_inputs(self, params, loosely=loosely)
+        
         return params
 
 
@@ -650,7 +657,6 @@ class Recipe(Cargo):
         subst._add_('config', self.config, nosubst=True) 
         subst._add_('steps', {}, nosubst=True)
         subst._add_('previous', {}, nosubst=True)
-        # this is subject to {}-substitutions
         subst._add_('recipe', self.make_substitition_namespace(ns=self.assign))
 
         logopts = self.config.opts.log.copy()

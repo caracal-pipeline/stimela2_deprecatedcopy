@@ -40,7 +40,7 @@ lib:
         var: ms
         over: ms_list
       aliases:
-        ms: ['cubical_image.ms']
+        ms: ['cubical_image_step.ms']
       inputs:
         ms_list:
           dtype: List[str]
@@ -48,9 +48,9 @@ lib:
       defaults:
         ms_list: [a,b,c]
       steps:
-        cubical_image:
+        cubical_image_step:
           recipe:
-            _use: cubical_image
+            _use: cubical_image_loop
 
 opts:
   log:
@@ -60,8 +60,8 @@ opts:
 
 
 ## but also top-level sections are treated as recipe names
-cubical_image:
-  name: "cubical_image"
+cubical_image_loop:
+  name: "cubical_image_loop"
   info: 'does one step of cubical, followed by one step of imaging'
 
   assign:
@@ -94,11 +94,11 @@ cubical_image:
 
 
 ## ....and can be invoked via _use, see below
-recipe:
+loop_recipe:
   _use: lib.recipes.test-loop-recipe
 
   
-recipe2:
-  _use: cubical_image
+same_as_cubical_image_loop:
+  _use: cubical_image_loop
 
   
