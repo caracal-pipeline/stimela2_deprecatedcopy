@@ -1,7 +1,8 @@
 cabs:
   simms:
     image: null
-    command: simms
+    command: echo 
+    # simms
     inputs:
       msname:
         dtype: str
@@ -15,20 +16,31 @@ cabs:
     outputs:
       ms:
         dtype: MS
-        implicit: "{self.msname}"
+        implicit: "{current.msname}"
+        must_exist: false
         
   cubical:
-    command: gocubical
-    virtual_env: ~/.venv/cc
+    command: echo
+    # gocubical
+    virtual_env: 
+    # ~/.venv/cc
     inputs:
       ms:
         dtype: MS
         required: true
         writable: true
-        alias: data-ms
+        nom_de_guerre: data-ms
+        must_exist: false   # for testing
 
   wsclean:
     image: null
+    command: echo
+    inputs:
+      ms:
+        must_exist: false  # for testing
+    outputs:
+      msout:
+        must_exist: false  # for testing
 
   aimfast:
     command: /bin/true ## dummy command for now, since this is just a dummy example step
@@ -43,10 +55,6 @@ cabs:
 recipe:
   name: "demo recipe"
   info: 'top level recipe definition'
-  dirs:
-    input: input
-    output: output
-    log: logs
   aliases:
     msname: selfcal.ms
     telescope: makems.tel
