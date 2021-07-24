@@ -4,7 +4,7 @@ command: simms
 info: Simms 
 
 policies:
-  prefix: '-'
+  prefix: '--'
 
 defaults:
   synthesis: 0.5
@@ -18,10 +18,9 @@ inputs:
     info: Measurement set(s)
     dtype: str
     required: true
+    nom_de_guerre: name
   tel:
     dtype: str
-    policies:
-      prefix: "--"
   antennas:
     info: Antenna table/file
     dtype: Union[File, Directory]
@@ -41,10 +40,12 @@ inputs:
     dtype: Union[str, float]
   direction: 
     info: Phase centre
+  nchan:
+    info: number of channels
+    dtype: int
 
 outputs:
   ms:
     info: Simulated MS
     dtype: MS
-    implicit: "{self.msname}"
-
+    implicit: "{current.msname}"

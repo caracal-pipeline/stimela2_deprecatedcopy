@@ -28,6 +28,9 @@ base_inputs:
     info: Threads
     dtype: int
     nom_de_guerre: j
+  make-psf-only:
+    info: Make PSF only
+    dtype: bool
   weight:
     info: "Weightmode can be: natural, uniform, briggs. Default: uniform. When using Briggs' weighting, add the robustness parameter, like: '-weight briggs 0.5'"
     dtype: str
