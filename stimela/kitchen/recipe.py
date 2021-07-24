@@ -120,6 +120,9 @@ class Step:
             self.cargo.finalize(config, log=self.log, fqname=fqname, nesting=nesting+1)
             # cargo might change its logger, so back-propagate it here
             self.log = self.cargo.log
+            if not hasattr(self, 'backend') or self.backend is None:
+                self.backend = self.config.opts.backend
+
 
     def prevalidate(self, subst: Optional[SubstitutionNS]=None):
         if not self.prevalidated:
@@ -183,8 +186,10 @@ class Step:
         if not self.skip:
             try:
                 if type(self.cargo) is Recipe:
+                    self.cargo.backend = self.cargo.backend or self.backend
                     self.cargo._run()
                 elif type(self.cargo) is Cab:
+                    self.cargo.backend = self.cargo.backend or self.backend
                     runners.run_cab(self.cargo, log=self.log, subst=subst)
                 else:
                     raise RuntimeError("Unknown cargo type")
