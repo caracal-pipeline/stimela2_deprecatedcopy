@@ -131,6 +131,7 @@ class Step:
                             f"{len(self.unresolved_params)} unresolved parameters")
             if self.invalid_params:
                 raise StepValidationError(f"{self.cargo.name} has the following invalid parameters: {join_quote(self.invalid_params)}")
+            self._prevalidated = True
 
     def log_summary(self, level, title, color=None):
         extra = dict(color=color, boldface=True)
@@ -178,7 +179,11 @@ class Step:
         # bomb out if some inputs failed to validate or substitutions resolve
         if self.cargo.invalid_params or self.cargo.unresolved_params:
             invalid = self.cargo.invalid_params + self.cargo.unresolved_params
-            raise StepValidationError(f"invalid inputs: {join_quote(invalid)}", log=self.log)
+            if self.skip:
+                self.log.warning(f"invalid inputs: {join_quote(invalid)}")
+                self.log.warning("since the step was skipped, this is not fatal")
+            else:
+                raise StepValidationError(f"invalid inputs: {join_quote(invalid)}", log=self.log)
 
         if not self.skip:
             try:
@@ -474,10 +479,12 @@ class Recipe(Cargo):
                 for alias_target in alias_list:
                     self._add_alias(name, alias_target)
 
-            # automatically make aliases for unset step parameters 
+            # automatically make aliases for step parameters that are unset, and don't have a default, and aren't implict 
             for label, step in self.steps.items():
                 for name, schema in step.inputs_outputs.items():
-                    if (label, name) not in self._alias_map and name not in step.params: # and schema.required:
+                    if (label, name) not in self._alias_map and name not in step.params \
+                            and name not in step.cargo.defaults and schema.default is None \
+                            and not schema.implicit:
                         auto_name = f"{label}_{name}"
                         if auto_name in self.inputs or auto_name in self.outputs:
                             raise RecipeValidationError(f"auto-generated parameter name '{auto_name}' conflicts with another name. Please define an explicit alias for this.", log=log)
