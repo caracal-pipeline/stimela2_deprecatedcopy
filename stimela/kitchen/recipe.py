@@ -32,6 +32,7 @@ class Step:
     params: Dict[str, Any] = EmptyDictDefault()     # assigns parameter values
     info: Optional[str] = None                      # comment or info
     skip: bool = False                              # if true, step is skipped
+    backend: Optional[str] = None                   # backend setting, overrides opts.config.backend if set
 
     name: str = ''                                  # step's internal name
     fqname: str = ''                                # fully-qualified name e.g. recipe_name.step_label
@@ -120,8 +121,8 @@ class Step:
             self.cargo.finalize(config, log=self.log, fqname=fqname, nesting=nesting+1)
             # cargo might change its logger, so back-propagate it here
             self.log = self.cargo.log
-            if not hasattr(self, 'backend') or self.backend is None:
-                self.backend = self.config.opts.backend
+            # set backend
+            self.backend = self.backend or self.config.opts.backend
 
 
     def prevalidate(self, subst: Optional[SubstitutionNS]=None):
