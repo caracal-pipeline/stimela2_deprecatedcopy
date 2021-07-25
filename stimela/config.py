@@ -65,12 +65,13 @@ class StimelaLogConfig(object):
 import stimela.backends.docker
 import stimela.backends.singularity
 import stimela.backends.podman
+import stimela.backends.native
 
-Backend = Enum("Stimela.Backend", "docker singularity podman")
+Backend = Enum("Stimela.Backend", "docker singularity podman native")
 
 @dataclass
 class StimelaOptions(object):
-    backend: Backend = "docker"
+    backend: Backend = "native" #TODO(Sphe):: Maybe docker/singularity makes more sense
     registry: str = "quay.io"
     basename: str = "stimela/v2-"
     singularity_image_dir: str = "~/.singularity"

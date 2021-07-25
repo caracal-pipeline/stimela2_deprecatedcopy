@@ -8,35 +8,8 @@ from stimela.exceptions import StimelaCabRuntimeError
 
 def run_cab(cab: Cab, log=None, subst: Optional[Dict[str, Any]] = None):
     log = log or logger()
-    if cab.image:
-        raise RuntimeError("container runner not yet implemented")
-    else:
-        return run_cab_natively(cab, log=log, subst=subst)
-
-
-
-def run_cab_natively(cab: Cab, log, subst: Optional[Dict[str, Any]] = None):
-    args, venv = cab.build_command_line(subst)
-
-    command_name = args[0]
-
-    if venv:
-        args = ["/bin/bash", "--rcfile", f"{venv}/bin/activate", "-c", " ".join(shlex.quote(arg) for arg in args)]
-
-    log.debug(f"command line is {args}")
+    backend = __import__(f"stimela.backends.{cab.backend.name}", 
+                         fromlist=[cab.backend.name])
+    return backend.run(cab, log=log, subst=subst)
     
-    cab.reset_runtime_status()
 
-    retcode = xrun(args[0], args[1:], shell=False, log=log, 
-                output_wrangler=cab.apply_output_wranglers, 
-                return_errcode=True, command_name=command_name)
-
-    # if retcode is not 0, and cab didn't declare itself a success,
-    if retcode:
-        if not cab.runtime_status:
-            raise StimelaCabRuntimeError(f"{command_name} returned non-zero exit status {retcode}", log=log)
-    else:
-        if cab.runtime_status is False:
-            raise StimelaCabRuntimeError(f"{command_name} was marked as failed based on its output", log=log)
-
-    return retcode
