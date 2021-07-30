@@ -1,52 +1,144 @@
 # -*- coding: future_fstrings -*-
 import subprocess
 import os
-import sys
+import platform
+import getpass
 from io import StringIO
 from stimela import utils
 import json
 import stimela
 import time
 import datetime
-import tempfile
-
+import subprocess
+import yaml
+from typing import Any, List, Dict, Optional, Union
+from stimela.config import StimelaImage
 
 class DockerError(Exception):
     pass
 
+from stimela.backends import StimelaImageBuildInfo, StimelaImageInfo
 
-def build(image, build_path, tag=None, build_args=None, fromline=None, args=[]):
-    """ build a docker image"""
+_available_images: Union[Dict[str,Dict[str, StimelaImageInfo]], None] = None
 
-    if tag:
-        image = ":".join([image, tag])
+def available_images():
+    """Scans system for available stimela images and returns dicitonary of StimelaImageInfo objects.
 
-    bdir = tempfile.mkdtemp()
-    os.system('cp -r {0:s}/* {1:s}'.format(build_path, bdir))
-    if build_args:
-        stdw = tempfile.NamedTemporaryFile(dir=bdir, mode='w')
-        with open("{}/Dockerfile".format(bdir)) as std:
-            dfile = std.readlines()
-        for line in dfile:
-            if fromline and line.lower().startswith('from'):
-                stdw.write('FROM {:s}\n'.format(fromline))
-            elif line.lower().startswith("cmd") or line == dfile[-1]:
-                for arg in build_args:
-                    stdw.write(arg+"\n")
-                stdw.write(line)
-            else:
-                stdw.write(line)
-        stdw.flush()
-        utils.xrun("docker build", args+["--force-rm", "-f", stdw.name,
-                                         "-t", image,
-                                         bdir])
+    Stimela docker images are identified by a stimela.image.name label.
 
-        stdw.close()
+    Returns
+    -------
+    dict
+        dictionary: {image_name: {version: image_info}}  
+    """
+    from stimela.main import log
+    global _available_images
+    if _available_images is None:
+
+        # get list of image IDs which have the right label
+        proc = subprocess.run(["docker", "images",
+                            "--filter", "label=stimela.image.name", 
+                            "--format", "{{.ID}}"], stdout=subprocess.PIPE)
+        _available_images = {}
+        iids = proc.stdout.split()
+
+        # inspect details of matching IDs
+        if iids:
+            proc = subprocess.run(["docker", "inspect"] + iids, 
+                                stdout=subprocess.PIPE)
+            # parse output
+            inspect_data = yaml.safe_load(proc.stdout)
+            for num, image_data in enumerate(inspect_data):
+                iid = image_data.get('Id')
+                repotags = image_data.get('RepoTags')
+                if iid is None:
+                    log.warning(f"failed to parse 'docker inspect' output element {num} {repotags}, skipping")
+                    continue
+                try:
+                    labels = image_data['ContainerConfig']['Labels']
+                    name = labels['stimela.image.name']
+                    version = labels['stimela.image.version']
+                    build = {}
+                    for key in 'stimela_version', 'user', 'host', 'date':
+                        build[key] = labels[f'stimela.build.{key}']
+                except KeyError as keyerr:
+                    log.warning(f"failed to parse 'docker inspect' output element {num} {repotags}: missing key {keyerr}, skipping")
+                    continue
+
+                _available_images.setdefault(name, {})[version] = StimelaImageInfo(name=name, version=version, iid=iid, 
+                                                                                   full_name=repotags[0], build=StimelaImageBuildInfo(**build))
+        
+    return _available_images
+
+
+def _get_full_name(image: StimelaImage, version:str):
+    """Returns full image name (e.g. "quay.io/stimela/v2-NAME:VERSION")
+
+    Parameters
+    ----------
+    image : StimelaImage
+        image object
+    version : str
+        version
+    """
+    from stimela.main import CONFIG
+    if CONFIG.opts.registry:
+        basename = f"{CONFIG.opts.registry}/{CONFIG.opts.basename}"
     else:
-        utils.xrun("docker build", args+["--force-rm", "-t", image,
-                                         bdir])
+        basename = CONFIG.opts.basename
+    return f"{basename}{image.name}:{version}"
 
-    os.system('rm -rf {:s}'.format(bdir))
+
+def build(image: StimelaImage, version: str):
+    """Builds given image + version
+
+    Parameters
+    ----------
+    image : StimelaImage
+        image object
+    version : str
+        version to be built, must be present in image.images
+    """
+    from stimela.main import log
+
+    fullname = _get_full_name(image, version)
+
+    build_info = image.images[version]
+    cwd = os.path.dirname(image.path)
+    dockerfile = os.path.join(cwd, build_info.dockerfile)
+    log.info(f"building {fullname} using {dockerfile}")
+
+    subprocess.run(["docker", "build", "-t", fullname, "-f", dockerfile,
+                    "--label", f"stimela.image.name={image.name}", 
+                    "--label", f"stimela.image.version={version}", 
+                    "--label", f"stimela.build.stimela_version={stimela.__version__}", 
+                    "--label", f"stimela.build.user={getpass.getuser()}", 
+                    "--label", f"stimela.build.host={platform.node()}", 
+                    "--label", f"stimela.build.date={datetime.datetime.now().ctime()}", 
+                    cwd], check=True)
+
+    # reset this to force a rescan in available_images()
+    global _available_images
+    _available_images = None
+
+
+def push(image: StimelaImage, version: str):
+    """Pushes given image + version to registry
+
+    Parameters
+    ----------
+    image : StimelaImage
+        image object
+    version : str
+        version to be pushed
+    """
+    from stimela.main import log
+
+    fullname = _get_full_name(image, version)
+    log.info(f"pushing {fullname}")
+
+    subprocess.run(["docker", "push", fullname], check=True)
+        
 
 
 def pull(image, tag=None, force=False):

@@ -2,18 +2,27 @@
 
 import os
 import sys
-from setuptools import setup
+from setuptools import setup, find_packages
 import glob
 
 
 requirements = ["pyyaml",
                 "nose>=1.3.7",
                 "future-fstrings",
-                "scabha"
+                "scabha",
+                "ruamel.yaml",
+                "munch",
+                "omegaconf>=2.1pre1",
+                "click",
+                "pydantic"
                 ],
 
 PACKAGE_NAME = "stimela"
+<<<<<<< HEAD
 __version__ = "1.7.0"
+=======
+__version__ = "2.0rc1"
+>>>>>>> origin/configuratt
 
 setup(name=PACKAGE_NAME,
       version=__version__,
@@ -21,21 +30,14 @@ setup(name=PACKAGE_NAME,
       author="Sphesihle Makhathini & RATT",
       author_email="sphemakh@gmail.com",
       url="https://github.com/ratt-ru/Stimela",
-      packages=["stimela", "stimela/cargo",
-                "stimela/utils", "stimela/cargo/cab",
-                "stimela/cargo/base"],
-      package_data={"stimela/cargo": [
-          "base/*/Dockerfile",
-          "base/*.template",
-          "cab/*/src/*.py",
-          "cab/*/src/*.json",
-          "base/*/xvfb.init.d",
-          "cab/*/parameters.json",
-          "cab/*/src/tdlconf.profiles",
-      ]},
-      python_requires='>=3.5',
+      packages = find_packages(),
+      include_package_data=True,
+      python_requires='>=3.6',
       install_requires=requirements,
-      scripts=["bin/" + i for i in os.listdir("bin")] + 
-                glob.glob("stimela/cargo/cab/stimela_runscript"),
+      entry_points="""
+            [console_scripts]
+            stimela = stimela.main:cli
+      """,
+      scripts=glob.glob("stimela/cargo/cab/stimela_runscript"),
       classifiers=[],
       )
