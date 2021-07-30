@@ -18,11 +18,7 @@ requirements = ["pyyaml",
                 ],
 
 PACKAGE_NAME = "stimela"
-<<<<<<< HEAD
-__version__ = "1.7.0"
-=======
 __version__ = "2.0rc1"
->>>>>>> origin/configuratt
 
 setup(name=PACKAGE_NAME,
       version=__version__,
